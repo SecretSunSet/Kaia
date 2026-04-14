@@ -1,0 +1,35 @@
+# Secrets & keys
+keys/
+*.key
+*.pem
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs & local data
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
