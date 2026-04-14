@@ -5,6 +5,31 @@ Format: timestamped entries per phase, grouped by Added/Changed/Fixed/Notes.
 
 ---
 
+## [2026-04-15] Deployment — AWS EC2
+
+### Added
+
+- `Dockerfile` — Python 3.11-slim base with ffmpeg for voice processing. Exposes port 8000.
+- `.dockerignore` — excludes secrets, caches, tests, docs, deploy scripts from image.
+- `deploy/setup-server.sh` — one-time bootstrap script for fresh Ubuntu 24.04 EC2 instance (installs python, ffmpeg, creates /opt/kaia, venv).
+- `deploy/kaia.service` — systemd unit for auto-start/auto-restart. Runs as `ubuntu` user, reads `/opt/kaia/app/.env`, MemoryMax=1G, CPUQuota=80%, Restart=always with 10s delay.
+- `deploy/update.sh` — manual pull/restart script on the server.
+- `.github/workflows/deploy.yml` — GitHub Actions auto-deploy on push to `main` via SSH (appleboy/ssh-action). Requires secrets `SERVER_HOST` and `SSH_PRIVATE_KEY`.
+- `requirements.txt` — added `aiohttp>=3.9.0` for future health-check endpoint / monitoring hooks.
+
+### Changed
+
+- `.gitignore` — consolidated at repo root. Now excludes `*.pem`, `deploy/kaia-key.pem`, `*.ogg`, `*.mp3`, `/tmp/kaia_tts/`, plus the existing venv/__pycache__/secrets patterns.
+
+### Notes
+
+- Target: AWS EC2 t4g.small (ARM, 2 vCPU, 2GB RAM, Ubuntu 24.04) at `3.106.134.24`.
+- SSH: `ubuntu@3.106.134.24` with `kaia-key.pem`.
+- Deploy flow: push to `main` → GitHub Actions SSHes in → `git pull` → `pip install` → `systemctl restart kaia`.
+- systemd writes logs to journal: `journalctl -u kaia -f` to tail.
+
+---
+
 ## [2026-04-13] Phase 6 — Voice Interface + Polish
 
 ### Added

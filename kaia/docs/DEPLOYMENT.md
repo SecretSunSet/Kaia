@@ -126,7 +126,68 @@ python -m bot.telegram_bot
 
 ## Production Deployment
 
-### Railway (Recommended)
+### AWS EC2 (current production — recommended)
+
+**Target:** t4g.small (ARM, 2 vCPU, 2GB RAM, Ubuntu 24.04)
+**Host:** `3.106.134.24`
+**User:** `ubuntu`
+**Key:** `keys/kaia-key.pem` (local, never commit)
+
+Files in `deploy/`:
+- `setup-server.sh` — one-time bootstrap (apt update, installs python3/ffmpeg/git, creates `/opt/kaia/` and venv).
+- `kaia.service` — systemd unit (auto-restart, MemoryMax=1G, CPUQuota=80%, journal logs).
+- `update.sh` — manual pull/install/restart on the server.
+
+**One-time server setup:**
+
+```bash
+# From local machine
+scp -i keys/kaia-key.pem deploy/setup-server.sh ubuntu@3.106.134.24:~/
+ssh -i keys/kaia-key.pem ubuntu@3.106.134.24
+
+# On server
+bash ~/setup-server.sh
+cd /opt/kaia
+git clone https://github.com/YOUR_USERNAME/kaia.git app
+cd app
+source /opt/kaia/venv/bin/activate
+pip install -r kaia/requirements.txt
+cp kaia/.env.example kaia/.env
+nano kaia/.env                              # fill in API keys
+
+sudo cp deploy/kaia.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now kaia
+sudo systemctl status kaia
+journalctl -u kaia -f                       # tail logs
+```
+
+**Updates:**
+
+```bash
+# Manual
+ssh -i keys/kaia-key.pem ubuntu@3.106.134.24 'cd /opt/kaia/app && bash deploy/update.sh'
+
+# Automatic via GitHub Actions
+# .github/workflows/deploy.yml runs on every push to main.
+# Required repo secrets:
+#   SERVER_HOST      = 3.106.134.24
+#   SSH_PRIVATE_KEY  = full contents of kaia-key.pem
+```
+
+**Service management:**
+
+```bash
+sudo systemctl restart kaia
+sudo systemctl stop kaia
+sudo systemctl status kaia
+journalctl -u kaia -f                       # live logs
+journalctl -u kaia --since "1 hour ago"
+```
+
+---
+
+### Railway
 
 Config files included:
 - `Procfile` — `worker: python -m bot.telegram_bot`

@@ -188,6 +188,48 @@ Stateless helper functions. No business logic.
 | Groq Whisper | `utils/voice_stt.py` | Voice transcription (Phase 6) |
 | edge-tts | `utils/voice_tts.py` | Text-to-speech replies (Phase 6) |
 
+## Deployment Flow
+
+```
+┌──────────────────┐       push to main        ┌────────────────────┐
+│   Developer      │ ─────────────────────────▶│   GitHub (main)    │
+│   local repo     │                           └──────────┬─────────┘
+└──────────────────┘                                      │
+                                                          │ triggers
+                                                          ▼
+                                         ┌─────────────────────────────┐
+                                         │ GitHub Actions              │
+                                         │ .github/workflows/deploy.yml│
+                                         │ (appleboy/ssh-action)       │
+                                         └──────────────┬──────────────┘
+                                                        │ SSH (secret key)
+                                                        ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ AWS EC2 t4g.small — 3.106.134.24 — Ubuntu 24.04 (ARM, 2 vCPU, 2GB) │
+│                                                                    │
+│  /opt/kaia/                                                        │
+│   ├── venv/              (Python 3.11 virtualenv)                  │
+│   └── app/               (git clone of repo)                       │
+│        ├── .env          (API keys — created on server, not in git)│
+│        └── deploy/                                                 │
+│             ├── setup-server.sh    (one-time bootstrap)            │
+│             ├── kaia.service       (systemd unit)                  │
+│             └── update.sh          (manual pull & restart)         │
+│                                                                    │
+│  systemd  ─▶  kaia.service  ─▶  python -m bot.telegram_bot         │
+│              (auto-restart, journal logs, MemoryMax=1G, CPU=80%)   │
+└────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                   Telegram / Anthropic / Supabase / Groq
+```
+
+On push to `main`:
+1. GitHub Actions SSHes into EC2 as `ubuntu`.
+2. `git pull origin main` in `/opt/kaia/app`.
+3. `pip install -r requirements.txt` inside the venv.
+4. `sudo systemctl restart kaia` — systemd restarts the bot, keeping it alive.
+
 ## Design Decisions
 
 1. **Modular monolith over microservices** — Single process simplifies deployment and debugging. Skills are isolated modules that could be split out later if needed.

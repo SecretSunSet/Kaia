@@ -1,0 +1,20 @@
+[Unit]
+Description=KAIA Personal AI Assistant Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/kaia/app/kaia
+EnvironmentFile=/opt/kaia/app/kaia/.env
+ExecStart=/opt/kaia/venv/bin/python -m bot.telegram_bot
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+MemoryMax=1G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

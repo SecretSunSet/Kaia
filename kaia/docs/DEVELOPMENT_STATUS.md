@@ -1,8 +1,10 @@
 # KAIA Development Status
 
-**Last updated:** 2026-04-13
-**Current phase:** All phases complete — v1.0
+**Last updated:** 2026-04-15
+**Current phase:** All phases complete — v1.0 — **Deployed to AWS EC2 t4g.small**
 **Overall progress:** 100% (Phases 1–6 of 6)
+**Production host:** `3.106.134.24` (Ubuntu 24.04, ARM, 2 vCPU, 2GB RAM)
+**Runtime:** systemd unit `kaia.service`, auto-deploy via GitHub Actions on push to `main`
 
 ---
 

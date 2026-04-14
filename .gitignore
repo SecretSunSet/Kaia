@@ -5,6 +5,7 @@ keys/
 .env
 .env.local
 .env.*.local
+deploy/kaia-key.pem
 
 # Python
 __pycache__/
@@ -33,3 +34,8 @@ logs/
 *.sqlite
 *.sqlite3
 *.db
+
+# Audio artifacts (voice processing)
+*.ogg
+*.mp3
+/tmp/kaia_tts/
