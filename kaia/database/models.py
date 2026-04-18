@@ -127,3 +127,12 @@ class ChannelConversation:
     content: str
     id: str = ""
     created_at: datetime | None = None
+
+
+@dataclass
+class ForumTopicMapping:
+    chat_id: int
+    channel_id: str
+    topic_id: int
+    id: str = ""
+    created_at: datetime | None = None

@@ -19,6 +19,7 @@ from database.models import (
     UserChannelState,
     ChannelProfileEntry,
     ChannelConversation,
+    ForumTopicMapping,
 )
 
 
@@ -717,3 +718,83 @@ async def count_channel_conversations(user_id: str, channel_id: str) -> int:
         .execute()
     )
     return result.count or 0
+
+
+# ── Forum topic mappings ───────────────────────────────────────────
+
+def _row_to_forum_mapping(row: dict) -> ForumTopicMapping:
+    """Convert a Supabase row dict to a ForumTopicMapping dataclass."""
+    return ForumTopicMapping(
+        id=row["id"],
+        chat_id=int(row["chat_id"]),
+        channel_id=row["channel_id"],
+        topic_id=int(row["topic_id"]),
+        created_at=row.get("created_at"),
+    )
+
+
+async def save_forum_topic_mapping(
+    chat_id: int, channel_id: str, topic_id: int
+) -> None:
+    """Upsert a (chat_id, channel_id) → topic_id mapping."""
+    sb = get_supabase()
+    sb.table("forum_topic_mappings").upsert(
+        {
+            "chat_id": chat_id,
+            "channel_id": channel_id,
+            "topic_id": topic_id,
+        },
+        on_conflict="chat_id,channel_id",
+    ).execute()
+
+
+async def get_forum_topic_mappings(chat_id: int) -> list[ForumTopicMapping]:
+    """Return all topic mappings for a forum group chat."""
+    sb = get_supabase()
+    result = (
+        sb.table("forum_topic_mappings")
+        .select("*")
+        .eq("chat_id", chat_id)
+        .execute()
+    )
+    return [_row_to_forum_mapping(r) for r in result.data]
+
+
+async def get_forum_mapping_by_topic(
+    chat_id: int, topic_id: int
+) -> ForumTopicMapping | None:
+    """Find the channel_id mapped to a given topic in a chat."""
+    sb = get_supabase()
+    result = (
+        sb.table("forum_topic_mappings")
+        .select("*")
+        .eq("chat_id", chat_id)
+        .eq("topic_id", topic_id)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_forum_mapping(result.data[0])
+
+
+async def get_forum_mapping_by_channel(
+    chat_id: int, channel_id: str
+) -> ForumTopicMapping | None:
+    """Find the topic_id for a given channel in a chat."""
+    sb = get_supabase()
+    result = (
+        sb.table("forum_topic_mappings")
+        .select("*")
+        .eq("chat_id", chat_id)
+        .eq("channel_id", channel_id)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_forum_mapping(result.data[0])
+
+
+async def delete_forum_topic_mappings(chat_id: int) -> None:
+    """Delete all topic mappings for a chat (used when tearing down)."""
+    sb = get_supabase()
+    sb.table("forum_topic_mappings").delete().eq("chat_id", chat_id).execute()

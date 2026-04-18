@@ -31,6 +31,7 @@ from core.skill_router import SkillRouter
 from core.channel_manager import ChannelManager
 from core.channel_memory import ChannelMemoryManager
 from core.expert_detector import detect_expert_topic, clear_suggestion_history
+from core.forum_manager import ForumManager, ForumSetupError
 from core.scheduler import start_scheduler, shutdown_scheduler, handle_snooze, handle_dismiss
 from database.queries import (
     get_or_create_user,
@@ -56,6 +57,7 @@ memory_mgr = MemoryManager(ai_engine)
 skill_router = SkillRouter(ai_engine)
 channel_mgr = ChannelManager()
 channel_mem = ChannelMemoryManager()
+forum_mgr = ForumManager()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -71,6 +73,16 @@ def _should_reply_with_voice(profile_context: str) -> bool:
     """Check if the user wants voice replies based on their profile."""
     low = profile_context.lower()
     return "voice_replies: true" in low or "voice replies: enabled" in low
+
+
+def _forum_context(message) -> tuple[bool, int | None]:
+    """Return (is_forum, topic_id) for a message. Safe against missing attrs."""
+    if not settings.forum_mode_enabled:
+        return False, None
+    chat = message.chat
+    is_forum = bool(getattr(chat, "is_forum", False))
+    topic_id = getattr(message, "message_thread_id", None)
+    return is_forum, topic_id
 
 
 # ── Command handlers ─────────────────────────────────────────────────
@@ -185,7 +197,27 @@ async def cmd_channel_switch(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Extract channel_id from the command (e.g., "/hevn" → "hevn")
     command_text = (update.message.text or "").strip().lstrip("/").split()[0].lower()
-    channel_id = command_text
+    # Strip @botname suffix (e.g. "/hevn@kaia_bot")
+    channel_id = command_text.split("@", 1)[0]
+
+    # Forum mode: redirect user to the expert's topic instead of switching.
+    is_forum, _ = _forum_context(update.message)
+    if is_forum:
+        chat_id = update.message.chat_id
+        topic_id = await forum_mgr.get_topic_for_channel(chat_id, channel_id)
+        if topic_id is not None:
+            channel = await channel_mgr.get_channel_info(channel_id)
+            name = channel.character_name if channel else channel_id.title()
+            emoji = channel.emoji if channel else ""
+            await update.message.reply_text(
+                f"{emoji} {name} has her/his own topic thread in this group — "
+                f"tap it in the topics list to chat directly.",
+            )
+        else:
+            await update.message.reply_text(
+                "Expert topics aren't set up in this group yet. Run /setup_forum first."
+            )
+        return
 
     await update.message.chat.send_action("typing")
 
@@ -239,6 +271,15 @@ async def cmd_exit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(tg_user.id):
         return
 
+    # In forum mode there is no persistent channel state to exit — tap General.
+    is_forum, _ = _forum_context(update.message)
+    if is_forum:
+        await update.message.reply_text(
+            "💬 In this group each expert has their own topic. "
+            "Tap the General topic to talk to KAIA."
+        )
+        return
+
     try:
         user = await get_or_create_user(tg_user.id, tg_user.username)
         await channel_mgr.exit_channel(user.id)
@@ -256,6 +297,25 @@ async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     tg_user = update.effective_user
     if not _is_allowed(tg_user.id):
+        return
+
+    is_forum, _ = _forum_context(update.message)
+    if is_forum:
+        await update.message.reply_text(
+            "🏆 *KAIA Team Roster*\n\n"
+            "👑 *KAIA* — Team Lead\n"
+            "   💬 General topic (this one)\n\n"
+            "💰 *Hevn* — Financial Advisor\n"
+            "   📍 Tap her topic thread above\n\n"
+            "📈 *Kazuki* — Investment Manager\n"
+            "   📍 Tap his topic thread above\n\n"
+            "⚔️ *Akabane* — Trading Strategist\n"
+            "   📍 Tap his topic thread above\n\n"
+            "🔧 *MakubeX* — Tech Lead\n"
+            "   📍 Tap his topic thread above\n\n"
+            "Each expert has their own thread — tap to chat directly!",
+            parse_mode="Markdown",
+        )
         return
 
     try:
@@ -303,7 +363,108 @@ async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Something went wrong loading the team roster.")
 
 
+# ── Forum setup ─────────────────────────────────────────────────────
+
+async def cmd_setup_forum(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Create expert forum topics in this group (one-time setup)."""
+    if update.effective_user is None or update.message is None:
+        return
+    tg_user = update.effective_user
+    if not _is_allowed(tg_user.id):
+        return
+
+    chat = update.message.chat
+    if chat.type == "private":
+        await update.message.reply_text(
+            "This command only works in group chats with Topics enabled."
+        )
+        return
+
+    if not getattr(chat, "is_forum", False):
+        await update.message.reply_text(
+            "📋 Topics aren't enabled in this group yet.\n\n"
+            "Turn them on: *Group Settings → Topics → Toggle ON*\n"
+            "Then run /setup_forum again.",
+            parse_mode="Markdown",
+        )
+        return
+
+    if await forum_mgr.is_forum_setup(chat.id):
+        await update.message.reply_text("✅ Expert topics are already set up here.")
+        return
+
+    await update.message.reply_text("🔧 Setting up expert topics…")
+
+    try:
+        mappings = await forum_mgr.setup_forum_topics(context.bot, chat.id)
+    except ForumSetupError as exc:
+        if exc.is_permission_error:
+            await update.message.reply_text(
+                "❌ I need admin rights with *Manage Topics* permission.\n"
+                "Open *Group Settings → Admins → KAIA* and enable *Manage Topics*, "
+                "then run /setup_forum again.",
+                parse_mode="Markdown",
+            )
+        else:
+            logger.exception("Forum setup failed: {}", exc)
+            await update.message.reply_text(
+                f"Couldn't create topics: {exc}"
+            )
+        return
+
+    await update.message.reply_text(
+        f"✅ Team is ready! Created {len(mappings)} expert topics.\n\n"
+        "💰 Hevn — Financial Advisor\n"
+        "📈 Kazuki — Investment Manager\n"
+        "⚔️ Akabane — Trading Strategist\n"
+        "🔧 MakubeX — Tech Lead\n\n"
+        "Tap any topic to start chatting with that expert!"
+    )
+
+
 # ── Main message handler ────────────────────────────────────────────
+
+async def _handle_expert_turn(
+    update: Update,
+    *,
+    user,
+    text: str,
+    channel_id: str,
+    topic_id: int | None,
+) -> None:
+    """Route a message to an expert and reply in the correct topic/DM."""
+    channel = await channel_mgr.get_channel_info(channel_id)
+    if channel is None:
+        await update.message.reply_text(
+            f"Expert '{channel_id}' isn't configured. Ask the bot owner to check setup."
+        )
+        return
+
+    expert = get_expert(channel_id, ai_engine) or PlaceholderExpert(ai_engine)
+    result = await expert.handle(user=user, message=text, channel=channel)
+
+    reply_kwargs: dict = {"parse_mode": "Markdown"}
+    if topic_id is not None:
+        reply_kwargs["message_thread_id"] = topic_id
+
+    await update.message.reply_text(truncate(result.text), **reply_kwargs)
+
+    if result.ai_response:
+        track_ai_usage(
+            result.ai_response.input_tokens,
+            result.ai_response.output_tokens,
+            result.ai_response.provider,
+        )
+        logger.info(
+            "msg handled | user={} channel={} topic={} provider={} tokens={}+{}",
+            update.effective_user.id,
+            channel_id,
+            topic_id,
+            result.ai_response.provider,
+            result.ai_response.input_tokens,
+            result.ai_response.output_tokens,
+        )
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process any text message through the skill pipeline."""
@@ -334,47 +495,57 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # 1. Get or create user
         user = await get_or_create_user(tg_user.id, tg_user.username)
 
-        # 2. Check which channel the user is in
-        active_channel = await channel_mgr.get_active_channel(user.id)
+        is_forum, topic_id = _forum_context(update.message)
+        chat_type = update.message.chat.type
 
-        if active_channel != CHANNEL_GENERAL:
-            # ── Expert channel flow ──────────────────────────────────
-            channel = await channel_mgr.get_channel_info(active_channel)
-            if channel is None:
-                # Channel gone — reset to general and fall through
-                await channel_mgr.exit_channel(user.id)
-            else:
-                expert = get_expert(active_channel, ai_engine) or PlaceholderExpert(ai_engine)
-                result = await expert.handle(user=user, message=text, channel=channel)
-                await update.message.reply_text(
-                    truncate(result.text), parse_mode="Markdown"
-                )
-                if result.ai_response:
-                    track_ai_usage(
-                        result.ai_response.input_tokens,
-                        result.ai_response.output_tokens,
-                        result.ai_response.provider,
-                    )
-                    logger.info(
-                        "msg handled | user={} channel={} provider={} tokens={}+{}",
-                        tg_user.id,
-                        active_channel,
-                        result.ai_response.provider,
-                        result.ai_response.input_tokens,
-                        result.ai_response.output_tokens,
-                    )
+        # ── Forum mode: topic IS the channel ─────────────────────────
+        if is_forum:
+            chat_id = update.message.chat_id
+            channel_id = await forum_mgr.get_channel_for_topic(chat_id, topic_id)
+
+            if channel_id is None:
+                # Unknown topic — ignore silently so bot isn't noisy in random threads
                 return
 
-        # ── General KAIA flow (existing) ─────────────────────────────
+            if channel_id != CHANNEL_GENERAL:
+                await _handle_expert_turn(
+                    update,
+                    user=user,
+                    text=text,
+                    channel_id=channel_id,
+                    topic_id=topic_id,
+                )
+                return
+            # else: fall through to general KAIA flow, replying in this topic
+        else:
+            # ── DM mode: check persistent channel state ──────────────
+            if chat_type != "private":
+                # Regular (non-forum) group — ignore unless explicitly mentioned.
+                return
 
-        # 3. Load profile + conversation history
+            active_channel = await channel_mgr.get_active_channel(user.id)
+            if active_channel != CHANNEL_GENERAL:
+                channel = await channel_mgr.get_channel_info(active_channel)
+                if channel is None:
+                    await channel_mgr.exit_channel(user.id)
+                else:
+                    await _handle_expert_turn(
+                        update,
+                        user=user,
+                        text=text,
+                        channel_id=active_channel,
+                        topic_id=None,
+                    )
+                    return
+
+        # ── General KAIA flow (DM general OR forum General topic) ────
+
         profile_context = await memory_mgr.load_profile_context(user.id)
         recent_convos = await get_recent_conversations(
             user.id, limit=settings.max_conversation_history
         )
         history = [{"role": c.role, "content": c.content} for c in recent_convos]
 
-        # 4. Route to skill via intent detection
         result = await skill_router.route(
             user=user,
             message=text,
@@ -382,32 +553,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             profile_context=profile_context,
         )
 
-        # 5. Save conversation (user message + bot response)
         await save_conversation(user.id, ROLE_USER, text, skill_used=result.skill_name)
         await save_conversation(
             user.id, ROLE_ASSISTANT, result.text, skill_used=result.skill_name
         )
 
-        # 6. Send response (truncated for Telegram limit)
-        await update.message.reply_text(truncate(result.text), parse_mode="Markdown")
+        reply_kwargs: dict = {"parse_mode": "Markdown"}
+        if is_forum and topic_id is not None:
+            reply_kwargs["message_thread_id"] = topic_id
 
-        # 6b. Suggest expert if the message was handled by chat skill
+        await update.message.reply_text(truncate(result.text), **reply_kwargs)
+
+        # Suggest expert if the message was handled by chat skill
         if result.skill_name == SKILL_CHAT:
             suggestion = detect_expert_topic(text, result.text, user_id=user.id)
             if suggestion:
                 await update.message.reply_text(
                     f"💡 _{suggestion['suggestion']}_",
-                    parse_mode="Markdown",
+                    **reply_kwargs,
                 )
 
-        # 7. Run background memory extraction (fire-and-forget)
         updated_history = history + [
             {"role": "user", "content": text},
             {"role": "assistant", "content": result.text},
         ]
         memory_mgr.run_background_extraction(user.id, updated_history)
 
-        # 8. Track AI usage
         if result.ai_response:
             track_ai_usage(
                 result.ai_response.input_tokens,
@@ -469,32 +640,41 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
 
-        # Show what was transcribed
-        await update.message.reply_text(f"🎙️ _I heard:_ {transcribed}", parse_mode="Markdown")
+        is_forum, topic_id = _forum_context(update.message)
+        chat_type = update.message.chat.type
+
+        reply_kwargs: dict = {"parse_mode": "Markdown"}
+        if is_forum and topic_id is not None:
+            reply_kwargs["message_thread_id"] = topic_id
+
+        # Show what was transcribed (in the same topic if applicable)
+        await update.message.reply_text(f"🎙️ _I heard:_ {transcribed}", **reply_kwargs)
 
         # Process through the pipeline
         user = await get_or_create_user(tg_user.id, tg_user.username)
 
-        # Check active channel — route to expert if not in general
-        active_channel = await channel_mgr.get_active_channel(user.id)
-
-        if active_channel != CHANNEL_GENERAL:
-            channel = await channel_mgr.get_channel_info(active_channel)
-            if channel:
-                expert = get_expert(active_channel, ai_engine) or PlaceholderExpert(ai_engine)
-                result = await expert.handle(user=user, message=transcribed, channel=channel)
-                await update.message.reply_text(
-                    truncate(result.text), parse_mode="Markdown"
-                )
-                if result.ai_response:
-                    track_ai_usage(
-                        result.ai_response.input_tokens,
-                        result.ai_response.output_tokens,
-                        result.ai_response.provider,
-                    )
+        # Decide channel: forum mode → topic, DM → persistent state, other → ignore
+        channel_id: str
+        if is_forum:
+            chat_id = update.message.chat_id
+            mapped = await forum_mgr.get_channel_for_topic(chat_id, topic_id)
+            if mapped is None:
                 return
-            else:
-                await channel_mgr.exit_channel(user.id)
+            channel_id = mapped
+        else:
+            if chat_type != "private":
+                return
+            channel_id = await channel_mgr.get_active_channel(user.id)
+
+        if channel_id != CHANNEL_GENERAL:
+            await _handle_expert_turn(
+                update,
+                user=user,
+                text=transcribed,
+                channel_id=channel_id,
+                topic_id=topic_id if is_forum else None,
+            )
+            return
 
         # General KAIA flow
         profile_context = await memory_mgr.load_profile_context(user.id)
@@ -514,15 +694,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await save_conversation(user.id, ROLE_USER, transcribed, skill_used=result.skill_name)
         await save_conversation(user.id, ROLE_ASSISTANT, result.text, skill_used=result.skill_name)
 
-        # Send text response
-        await update.message.reply_text(truncate(result.text), parse_mode="Markdown")
+        # Send text response (in the same topic if applicable)
+        await update.message.reply_text(truncate(result.text), **reply_kwargs)
 
         # Optionally reply with voice
         if _should_reply_with_voice(profile_context):
             tts_path = await text_to_speech(result.text, voice=settings.tts_voice)
             if tts_path:
+                voice_kwargs: dict = {}
+                if is_forum and topic_id is not None:
+                    voice_kwargs["message_thread_id"] = topic_id
                 with open(tts_path, "rb") as audio:
-                    await update.message.reply_voice(voice=audio)
+                    await update.message.reply_voice(voice=audio, **voice_kwargs)
 
         # Background extraction
         updated_history = history + [
@@ -653,6 +836,7 @@ def main() -> None:
     app.add_handler(CommandHandler("makubex", cmd_channel_switch))
     app.add_handler(CommandHandler("exit", cmd_exit))
     app.add_handler(CommandHandler("team", cmd_team))
+    app.add_handler(CommandHandler("setup_forum", cmd_setup_forum))
 
     # Text messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

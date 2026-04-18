@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026-04-19] Phase CH-1.1 — Forum Topics Support
+
+### Added
+- **Dual-mode operation**: KAIA now runs in either DM mode (existing `/hevn`, `/exit` command switching) or Forum Topics mode (each expert gets a dedicated sub-thread in a Telegram forum group). The message handler auto-detects the mode per incoming message.
+- **New `forum_topic_mappings` table** (migration `003_forum_topics.sql`) mapping `(chat_id, channel_id) ↔ topic_id`.
+- **`/setup_forum`** command — one-time setup that creates four expert topics in a forum-enabled group and saves the mappings.
+- **`ForumManager`** (`kaia/core/forum_manager.py`) — create topics via `bot.create_forum_topic`, look up channel-for-topic / topic-for-channel, store mappings.
+- **Forum-aware routing**: in a forum group the user's current topic determines which expert replies; no per-user channel state is used. Expert replies are sent with `message_thread_id` so they stay in the correct topic.
+- **Configuration flag**: `FORUM_MODE_ENABLED` (default `True`) in `config/settings.py`.
+
+### Changed
+- `bot/telegram_bot.py` — `handle_message` and `handle_voice` now branch on forum vs DM; a shared `_handle_expert_turn()` helper unifies expert dispatch.
+- `/team` renders a topic-based roster in forum mode.
+- Expert commands (`/hevn`, `/kazuki`, `/akabane`, `/makubex`) in forum mode redirect the user to the expert's topic instead of switching DM state.
+- `/exit` in forum mode explains that topics replace explicit switching.
+
+### Notes
+- Bot must be a group admin with the **Manage Topics** permission before `/setup_forum` can create threads; the command reports a clear error if that permission is missing.
+- Migration `003_forum_topics.sql` must be run in Supabase before this version is deployed.
+
+---
+
 ## Phase CH-1 — Expert Channel System (Infrastructure)
 
 ### Added

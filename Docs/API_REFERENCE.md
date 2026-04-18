@@ -39,6 +39,21 @@ await channel_extract_and_save(ai_engine, user_id, channel_id, conversation_mess
 
 Uses a channel-specific domain prompt (financial facts for Hevn, tech facts for MakubeX, etc.) and saves extracted facts to `channel_profile`. Returns count saved.
 
+### `ForumManager` — `kaia/core/forum_manager.py`
+
+Maps Telegram forum topics to expert channels. Stateless service; persistence is in the `forum_topic_mappings` table.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `setup_forum_topics(bot, chat_id)` | `dict[str, int]` | Create the four expert topics in a group, persist the mappings, return `{channel_id: topic_id}`. Raises `ForumSetupError` (with `is_permission_error=True` when the bot lacks **Manage Topics**) |
+| `get_channel_for_topic(chat_id, topic_id)` | `str \| None` | Map a topic back to a channel. Returns `"general"` when `topic_id` is `None` or `1` (the implicit General topic). Returns `None` for unmapped topics |
+| `get_topic_for_channel(chat_id, channel_id)` | `int \| None` | Reverse lookup — topic_id for a channel in a group, or `None` if the channel is `"general"` / unmapped |
+| `is_forum_setup(chat_id)` | `bool` | True if any mappings exist for this group |
+| `load_topic_mappings(chat_id)` | `dict[str, int]` | All `{channel_id: topic_id}` entries for a group |
+| `clear_mappings(chat_id)` | `None` | Delete all mappings for a group (e.g. if the bot is removed) |
+
+`ForumSetupError` — raised by `setup_forum_topics` on Telegram API failure. Inspect `is_permission_error` to tell the user to grant **Manage Topics**.
+
 ### `detect_expert_topic()` — `kaia/core/expert_detector.py`
 
 Rule-based expert suggestion from general chat.
