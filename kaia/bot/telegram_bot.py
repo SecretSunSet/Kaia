@@ -18,18 +18,30 @@ from telegram.ext import (
 )
 
 from config.settings import get_settings
-from config.constants import ROLE_USER, ROLE_ASSISTANT
+from config.constants import (
+    ROLE_USER,
+    ROLE_ASSISTANT,
+    SKILL_CHAT,
+    CHANNEL_GENERAL,
+    CHANNEL_EMOJIS,
+)
 from core.ai_engine import AIEngine
 from core.memory_manager import MemoryManager
 from core.skill_router import SkillRouter
+from core.channel_manager import ChannelManager
+from core.channel_memory import ChannelMemoryManager
+from core.expert_detector import detect_expert_topic, clear_suggestion_history
 from core.scheduler import start_scheduler, shutdown_scheduler, handle_snooze, handle_dismiss
 from database.queries import (
     get_or_create_user,
     get_recent_conversations,
     save_conversation,
+    get_channel_profile,
 )
 from bot.commands import cmd_status_extended, cmd_export, cmd_reset, handle_reset_confirmation
 from bot.middleware import check_rate_limit, track_ai_usage
+from experts import get_expert
+from experts.placeholder import PlaceholderExpert
 from skills.briefing.handler import BriefingSkill
 from skills.reminders.handler import set_bot
 from utils.formatters import truncate
@@ -42,6 +54,8 @@ settings = get_settings()
 ai_engine = AIEngine()
 memory_mgr = MemoryManager(ai_engine)
 skill_router = SkillRouter(ai_engine)
+channel_mgr = ChannelManager()
+channel_mem = ChannelMemoryManager()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -81,6 +95,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🌅 Briefing — Daily morning summary\n"
         "🌐 Web search — \"What's the latest news about...\"\n"
         "🎙️ Voice — Send me voice messages!\n\n"
+        "👥 *Meet my team of experts:*\n"
+        "💰 /hevn — Financial advisor\n"
+        "📈 /kazuki — Investment manager\n"
+        "⚔️ /akabane — Trading strategist\n"
+        "🔧 /makubex — Tech lead\n"
+        "Type /team to see everyone.\n\n"
         "Just talk to me like a friend. No commands needed!\n"
         "Type /help for more details.",
         parse_mode="Markdown",
@@ -112,6 +132,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '  • "Search for best restaurants in Laguna"\n'
         '  • "What\'s the weather?"\n\n'
         "🎙️ *Voice* — Send a voice message and I'll transcribe and respond!\n\n"
+        "👥 *Expert Channels:*\n"
+        "/team — View your full AI team\n"
+        "/hevn — Financial advisor\n"
+        "/kazuki — Investment manager\n"
+        "/akabane — Trading strategist\n"
+        "/makubex — Tech lead\n"
+        "/exit — Return to general KAIA chat\n\n"
         "⚙️ *Commands:*\n"
         "/start — Welcome message\n"
         "/help — This help text\n"
@@ -146,6 +173,136 @@ async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Something went wrong generating your briefing.")
 
 
+# ── Channel / Expert command handlers ───────────────────────────────
+
+async def cmd_channel_switch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Switch to an expert channel (/hevn, /kazuki, /akabane, /makubex)."""
+    if update.effective_user is None or update.message is None:
+        return
+    tg_user = update.effective_user
+    if not _is_allowed(tg_user.id):
+        return
+
+    # Extract channel_id from the command (e.g., "/hevn" → "hevn")
+    command_text = (update.message.text or "").strip().lstrip("/").split()[0].lower()
+    channel_id = command_text
+
+    await update.message.chat.send_action("typing")
+
+    try:
+        user = await get_or_create_user(tg_user.id, tg_user.username)
+
+        # Switch channel
+        channel = await channel_mgr.switch_channel(user.id, channel_id)
+
+        # Clear expert suggestion history so we don't nag after switching
+        clear_suggestion_history(user.id)
+
+        # Check if first visit
+        if await channel_mgr.is_first_visit(user.id, channel_id):
+            # Generate onboarding
+            combined_context = await channel_mem.load_combined_context(
+                user.id, channel_id
+            )
+            expert = get_expert(channel_id, ai_engine) or PlaceholderExpert(ai_engine)
+            onboarding = await expert.generate_onboarding(user, channel, combined_context)
+            footer = expert.format_response_footer(channel)
+
+            # Save onboarding to channel history
+            await expert.save_messages(
+                user.id, channel_id, f"/{channel_id}", onboarding
+            )
+
+            await update.message.reply_text(
+                truncate(f"{onboarding}{footer}"), parse_mode="Markdown"
+            )
+        else:
+            # Returning visit — direct greeting
+            await update.message.reply_text(
+                f"{channel.emoji} *{channel.character_name}* here. What do you need?\n\n"
+                f"_{channel.role}_ | /exit to return to KAIA",
+                parse_mode="Markdown",
+            )
+
+    except ValueError as exc:
+        await update.message.reply_text(f"Channel not found: {exc}")
+    except Exception as exc:
+        logger.exception("Error switching to channel {}: {}", channel_id, exc)
+        await update.message.reply_text("Something went wrong switching channels.")
+
+
+async def cmd_exit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Return to general KAIA channel."""
+    if update.effective_user is None or update.message is None:
+        return
+    tg_user = update.effective_user
+    if not _is_allowed(tg_user.id):
+        return
+
+    try:
+        user = await get_or_create_user(tg_user.id, tg_user.username)
+        await channel_mgr.exit_channel(user.id)
+        await update.message.reply_text(
+            "👋 Back to KAIA. Your team is always here — just call their name!"
+        )
+    except Exception as exc:
+        logger.exception("Error exiting channel: {}", exc)
+        await update.message.reply_text("Something went wrong.")
+
+
+async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the team roster with status."""
+    if update.effective_user is None or update.message is None:
+        return
+    tg_user = update.effective_user
+    if not _is_allowed(tg_user.id):
+        return
+
+    try:
+        user = await get_or_create_user(tg_user.id, tg_user.username)
+        channels = await channel_mgr.get_all_channels()
+
+        lines = ["🏆 *KAIA Team Roster*\n"]
+
+        for ch in channels:
+            if ch.channel_id == CHANNEL_GENERAL:
+                lines.append(
+                    f"{ch.emoji} *{ch.character_name}* — {ch.role} (always active)\n"
+                    f"   General assistant, reminders, budget, briefing, web search\n"
+                )
+            else:
+                # Get knowledge score if user has talked to this expert
+                entries = await get_channel_profile(user.id, ch.channel_id)
+                score_info = channel_mem.get_knowledge_score(ch.channel_id, entries)
+
+                if entries:
+                    known_summary = ", ".join(
+                        k.replace("_", " ") for k in score_info["known"][:3]
+                    )
+                    knowledge_line = (
+                        f"   📊 Knowledge: {score_info['score']}%"
+                        + (f" — knows your {known_summary}" if known_summary else "")
+                    )
+                else:
+                    knowledge_line = "   📊 Knowledge: not started yet"
+
+                lines.append(
+                    f"{ch.emoji} *{ch.character_name}* — {ch.role} (/{ch.channel_id})\n"
+                    f"   {ch.personality[:80]}...\n"
+                    f"{knowledge_line}\n"
+                )
+
+        lines.append("Type any command to connect with a team member!")
+
+        await update.message.reply_text(
+            "\n".join(lines), parse_mode="Markdown"
+        )
+
+    except Exception as exc:
+        logger.exception("Error showing team roster: {}", exc)
+        await update.message.reply_text("Something went wrong loading the team roster.")
+
+
 # ── Main message handler ────────────────────────────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,14 +334,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # 1. Get or create user
         user = await get_or_create_user(tg_user.id, tg_user.username)
 
-        # 2. Load profile + conversation history
+        # 2. Check which channel the user is in
+        active_channel = await channel_mgr.get_active_channel(user.id)
+
+        if active_channel != CHANNEL_GENERAL:
+            # ── Expert channel flow ──────────────────────────────────
+            channel = await channel_mgr.get_channel_info(active_channel)
+            if channel is None:
+                # Channel gone — reset to general and fall through
+                await channel_mgr.exit_channel(user.id)
+            else:
+                expert = get_expert(active_channel, ai_engine) or PlaceholderExpert(ai_engine)
+                result = await expert.handle(user=user, message=text, channel=channel)
+                await update.message.reply_text(
+                    truncate(result.text), parse_mode="Markdown"
+                )
+                if result.ai_response:
+                    track_ai_usage(
+                        result.ai_response.input_tokens,
+                        result.ai_response.output_tokens,
+                        result.ai_response.provider,
+                    )
+                    logger.info(
+                        "msg handled | user={} channel={} provider={} tokens={}+{}",
+                        tg_user.id,
+                        active_channel,
+                        result.ai_response.provider,
+                        result.ai_response.input_tokens,
+                        result.ai_response.output_tokens,
+                    )
+                return
+
+        # ── General KAIA flow (existing) ─────────────────────────────
+
+        # 3. Load profile + conversation history
         profile_context = await memory_mgr.load_profile_context(user.id)
         recent_convos = await get_recent_conversations(
             user.id, limit=settings.max_conversation_history
         )
         history = [{"role": c.role, "content": c.content} for c in recent_convos]
 
-        # 3. Route to skill via intent detection
+        # 4. Route to skill via intent detection
         result = await skill_router.route(
             user=user,
             message=text,
@@ -192,23 +382,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             profile_context=profile_context,
         )
 
-        # 4. Save conversation (user message + bot response)
+        # 5. Save conversation (user message + bot response)
         await save_conversation(user.id, ROLE_USER, text, skill_used=result.skill_name)
         await save_conversation(
             user.id, ROLE_ASSISTANT, result.text, skill_used=result.skill_name
         )
 
-        # 5. Send response (truncated for Telegram limit)
+        # 6. Send response (truncated for Telegram limit)
         await update.message.reply_text(truncate(result.text), parse_mode="Markdown")
 
-        # 6. Run background memory extraction (fire-and-forget)
+        # 6b. Suggest expert if the message was handled by chat skill
+        if result.skill_name == SKILL_CHAT:
+            suggestion = detect_expert_topic(text, result.text, user_id=user.id)
+            if suggestion:
+                await update.message.reply_text(
+                    f"💡 _{suggestion['suggestion']}_",
+                    parse_mode="Markdown",
+                )
+
+        # 7. Run background memory extraction (fire-and-forget)
         updated_history = history + [
             {"role": "user", "content": text},
             {"role": "assistant", "content": result.text},
         ]
         memory_mgr.run_background_extraction(user.id, updated_history)
 
-        # 7. Track AI usage
+        # 8. Track AI usage
         if result.ai_response:
             track_ai_usage(
                 result.ai_response.input_tokens,
@@ -273,8 +472,31 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # Show what was transcribed
         await update.message.reply_text(f"🎙️ _I heard:_ {transcribed}", parse_mode="Markdown")
 
-        # Process through the normal pipeline
+        # Process through the pipeline
         user = await get_or_create_user(tg_user.id, tg_user.username)
+
+        # Check active channel — route to expert if not in general
+        active_channel = await channel_mgr.get_active_channel(user.id)
+
+        if active_channel != CHANNEL_GENERAL:
+            channel = await channel_mgr.get_channel_info(active_channel)
+            if channel:
+                expert = get_expert(active_channel, ai_engine) or PlaceholderExpert(ai_engine)
+                result = await expert.handle(user=user, message=transcribed, channel=channel)
+                await update.message.reply_text(
+                    truncate(result.text), parse_mode="Markdown"
+                )
+                if result.ai_response:
+                    track_ai_usage(
+                        result.ai_response.input_tokens,
+                        result.ai_response.output_tokens,
+                        result.ai_response.provider,
+                    )
+                return
+            else:
+                await channel_mgr.exit_channel(user.id)
+
+        # General KAIA flow
         profile_context = await memory_mgr.load_profile_context(user.id)
         recent_convos = await get_recent_conversations(
             user.id, limit=settings.max_conversation_history
@@ -423,6 +645,14 @@ def main() -> None:
     app.add_handler(CommandHandler("briefing", cmd_briefing))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("reset", cmd_reset))
+
+    # Expert channel commands
+    app.add_handler(CommandHandler("hevn", cmd_channel_switch))
+    app.add_handler(CommandHandler("kazuki", cmd_channel_switch))
+    app.add_handler(CommandHandler("akabane", cmd_channel_switch))
+    app.add_handler(CommandHandler("makubex", cmd_channel_switch))
+    app.add_handler(CommandHandler("exit", cmd_exit))
+    app.add_handler(CommandHandler("team", cmd_team))
 
     # Text messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

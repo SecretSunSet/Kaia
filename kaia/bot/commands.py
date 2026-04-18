@@ -53,6 +53,18 @@ async def cmd_status_extended(update: Update, context: ContextTypes.DEFAULT_TYPE
         conversations = sb.table("conversations").select("id", count="exact").eq("user_id", user.id).execute()
         convo_count = conversations.count or 0
 
+        # Active channel + channel conversation count
+        active_channel = "general"
+        channel_state = sb.table("user_channel_state").select("active_channel").eq("user_id", user.id).execute()
+        if channel_state.data:
+            active_channel = channel_state.data[0]["active_channel"]
+
+        channel_convos = sb.table("channel_conversations").select("id", count="exact").eq("user_id", user.id).execute()
+        channel_convo_count = channel_convos.count or 0
+
+        channel_facts = sb.table("channel_profile").select("id", count="exact").eq("user_id", user.id).execute()
+        channel_facts_count = channel_facts.count or 0
+
         # Format member since
         member_since = ""
         if user.created_at:
@@ -77,6 +89,9 @@ async def cmd_status_extended(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"  • Active reminders: {reminder_count}\n"
             f"  • Transactions: {txn_count}\n"
             f"  • Conversations: {convo_count}\n"
+            f"  • Active channel: {active_channel}\n"
+            f"  • Channel facts: {channel_facts_count}\n"
+            f"  • Channel messages: {channel_convo_count}\n"
             f"  • Member since: {member_since or 'Unknown'}\n\n"
             f"💰 Session: {stats['total_calls']} AI calls, "
             f"~${stats['estimated_cost_usd']:.4f} est. cost"
@@ -107,6 +122,9 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         reminders = sb.table("reminders").select("*").eq("user_id", user.id).execute()
         transactions = sb.table("transactions").select("*").eq("user_id", user.id).execute()
         conversations = sb.table("conversations").select("*").eq("user_id", user.id).order("created_at", desc=True).limit(100).execute()
+        channel_state = sb.table("user_channel_state").select("*").eq("user_id", user.id).execute()
+        channel_profile = sb.table("channel_profile").select("*").eq("user_id", user.id).execute()
+        channel_conversations = sb.table("channel_conversations").select("*").eq("user_id", user.id).order("created_at", desc=True).limit(200).execute()
 
         export_data = {
             "exported_at": datetime.utcnow().isoformat(),
@@ -120,6 +138,9 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             "reminders": reminders.data,
             "transactions": transactions.data,
             "recent_conversations": conversations.data,
+            "channel_state": channel_state.data,
+            "channel_profile": channel_profile.data,
+            "recent_channel_conversations": channel_conversations.data,
         }
 
         # Write to temp file and send
@@ -199,7 +220,17 @@ async def handle_reset_confirmation(update: Update) -> bool:
 
         # Delete all user data (cascading from users table would work too,
         # but let's be explicit)
-        for table in ("conversations", "transactions", "reminders", "memory_log", "budget_limits", "user_profile"):
+        for table in (
+            "conversations",
+            "transactions",
+            "reminders",
+            "memory_log",
+            "budget_limits",
+            "user_profile",
+            "channel_conversations",
+            "channel_profile",
+            "user_channel_state",
+        ):
             sb.table(table).delete().eq("user_id", user.id).execute()
 
         logger.info("Data reset for user {} (tg={})", user.id, tg_user.id)

@@ -81,3 +81,49 @@ class BudgetLimit:
     monthly_limit: Decimal
     id: str = ""
     is_active: bool = True
+
+
+# ── Channels / Expert system ────────────────────────────────────────
+
+@dataclass
+class Channel:
+    channel_id: str
+    name: str
+    character_name: str
+    role: str
+    personality: str
+    system_prompt: str
+    emoji: str = ""
+    is_active: bool = True
+    created_at: datetime | None = None
+
+
+@dataclass
+class UserChannelState:
+    user_id: str
+    active_channel: str = "general"
+    id: str = ""
+    switched_at: datetime | None = None
+
+
+@dataclass
+class ChannelProfileEntry:
+    user_id: str
+    channel_id: str
+    category: str
+    key: str
+    value: str
+    id: str = ""
+    confidence: float = 0.5
+    source: str = "inferred"
+    updated_at: datetime | None = None
+
+
+@dataclass
+class ChannelConversation:
+    user_id: str
+    channel_id: str
+    role: str
+    content: str
+    id: str = ""
+    created_at: datetime | None = None

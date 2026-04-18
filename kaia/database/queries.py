@@ -15,6 +15,10 @@ from database.models import (
     Reminder,
     Transaction,
     BudgetLimit,
+    Channel,
+    UserChannelState,
+    ChannelProfileEntry,
+    ChannelConversation,
 )
 
 
@@ -511,3 +515,205 @@ async def deactivate_budget_limit(user_id: str, category: str) -> None:
     sb.table("budget_limits").update({"is_active": False}).eq(
         "user_id", user_id
     ).eq("category", category).execute()
+
+
+# ── Channel state ───────────────────────────────────────────────────
+
+def _row_to_channel(row: dict) -> Channel:
+    """Convert a Supabase row dict to a Channel dataclass."""
+    return Channel(
+        channel_id=row["channel_id"],
+        name=row["name"],
+        character_name=row["character_name"],
+        role=row["role"],
+        personality=row["personality"],
+        system_prompt=row["system_prompt"],
+        emoji=row.get("emoji", ""),
+        is_active=row.get("is_active", True),
+        created_at=row.get("created_at"),
+    )
+
+
+async def get_user_channel_state(user_id: str) -> str:
+    """Return the user's active channel_id, or 'general' if none set."""
+    sb = get_supabase()
+    result = (
+        sb.table("user_channel_state")
+        .select("active_channel")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if result.data:
+        return result.data[0]["active_channel"]
+    return "general"
+
+
+async def set_user_channel_state(user_id: str, channel_id: str) -> None:
+    """Upsert the user's active channel."""
+    sb = get_supabase()
+    sb.table("user_channel_state").upsert(
+        {
+            "user_id": user_id,
+            "active_channel": channel_id,
+            "switched_at": datetime.utcnow().isoformat(),
+        },
+        on_conflict="user_id",
+    ).execute()
+
+
+async def get_channel_by_id(channel_id: str) -> Channel | None:
+    """Fetch a single channel definition."""
+    sb = get_supabase()
+    result = (
+        sb.table("channels")
+        .select("*")
+        .eq("channel_id", channel_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_channel(result.data[0])
+
+
+async def get_all_active_channels() -> list[Channel]:
+    """Return all active channel definitions."""
+    sb = get_supabase()
+    result = (
+        sb.table("channels")
+        .select("*")
+        .eq("is_active", True)
+        .order("channel_id")
+        .execute()
+    )
+    return [_row_to_channel(r) for r in result.data]
+
+
+# ── Channel profile (per-channel memory) ───────────────────────────
+
+async def get_channel_profile(
+    user_id: str, channel_id: str
+) -> list[ChannelProfileEntry]:
+    """Load all channel-specific profile entries for a user + channel."""
+    sb = get_supabase()
+    result = (
+        sb.table("channel_profile")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("channel_id", channel_id)
+        .execute()
+    )
+    return [
+        ChannelProfileEntry(
+            id=r["id"],
+            user_id=r["user_id"],
+            channel_id=r["channel_id"],
+            category=r["category"],
+            key=r["key"],
+            value=r["value"],
+            confidence=r.get("confidence", 0.5),
+            source=r.get("source", "inferred"),
+            updated_at=r.get("updated_at"),
+        )
+        for r in result.data
+    ]
+
+
+async def upsert_channel_profile(
+    user_id: str,
+    channel_id: str,
+    category: str,
+    key: str,
+    value: str,
+    confidence: float = 0.5,
+    source: str = "inferred",
+) -> None:
+    """Insert or update a channel-specific profile fact."""
+    sb = get_supabase()
+    sb.table("channel_profile").upsert(
+        {
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "category": category,
+            "key": key,
+            "value": value,
+            "confidence": confidence,
+            "source": source,
+            "updated_at": datetime.utcnow().isoformat(),
+        },
+        on_conflict="user_id,channel_id,category,key",
+    ).execute()
+
+
+async def delete_channel_profile_entry(
+    user_id: str, channel_id: str, category: str, key: str
+) -> None:
+    """Delete a specific channel profile entry."""
+    sb = get_supabase()
+    (
+        sb.table("channel_profile")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("channel_id", channel_id)
+        .eq("category", category)
+        .eq("key", key)
+        .execute()
+    )
+
+
+# ── Channel conversations ──────────────────────────────────────────
+
+async def save_channel_conversation(
+    user_id: str, channel_id: str, role: str, content: str
+) -> None:
+    """Append a message to channel-specific conversation history."""
+    sb = get_supabase()
+    sb.table("channel_conversations").insert(
+        {
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "role": role,
+            "content": content,
+        }
+    ).execute()
+
+
+async def get_channel_conversations(
+    user_id: str, channel_id: str, limit: int = 20
+) -> list[ChannelConversation]:
+    """Return the most recent channel messages, oldest-first."""
+    sb = get_supabase()
+    result = (
+        sb.table("channel_conversations")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("channel_id", channel_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    rows = list(reversed(result.data))  # oldest-first for conversation context
+    return [
+        ChannelConversation(
+            id=r["id"],
+            user_id=r["user_id"],
+            channel_id=r["channel_id"],
+            role=r["role"],
+            content=r["content"],
+            created_at=r.get("created_at"),
+        )
+        for r in rows
+    ]
+
+
+async def count_channel_conversations(user_id: str, channel_id: str) -> int:
+    """Return count of messages in a channel for a user."""
+    sb = get_supabase()
+    result = (
+        sb.table("channel_conversations")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .eq("channel_id", channel_id)
+        .execute()
+    )
+    return result.count or 0
