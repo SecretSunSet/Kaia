@@ -9,6 +9,31 @@ KAIA runs as a Telegram bot with two parallel conversation paths:
 
 The channel router sits **above** the skill router. When a user is in a non-general channel, the intent detector is bypassed entirely.
 
+## Dual-Mode Operation (CH-1.1)
+
+KAIA detects the chat type on every incoming message and routes accordingly:
+
+```
+              incoming message
+                     │
+        ┌────────────┴────────────┐
+        │                         │
+   chat.is_forum?               DM (private)
+        │                         │
+        ▼                         ▼
+  topic_id → channel         user_channel_state
+  (ForumManager)             (ChannelManager)
+        │                         │
+        ▼                         ▼
+  expert.handle(...)         expert.handle(...)
+  reply with                 reply in single chat
+  message_thread_id
+```
+
+- **DM mode**: `user_channel_state.active_channel` tracks which expert the user is talking to. `/hevn`, `/exit`, etc. mutate that state.
+- **Forum mode**: the topic *is* the channel. No per-user state; the bot looks up the channel via `forum_topic_mappings.topic_id → channel_id` and replies with `message_thread_id` so the reply lands in the same topic.
+- **Regular (non-forum) groups**: ignored for now — the bot does not respond.
+
 ---
 
 ## Message Flow

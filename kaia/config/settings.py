@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     )
     log_level: str = Field("INFO", description="Loguru log level")
 
+    # Forum Topics support
+    forum_mode_enabled: bool = Field(
+        True, description="Enable Telegram Forum Topics support (dual-mode routing)"
+    )
+
 
 def get_settings() -> Settings:
     """Create and return a cached Settings instance."""

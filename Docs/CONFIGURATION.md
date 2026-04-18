@@ -10,6 +10,7 @@ See `.env.example` in `kaia/` for the full list. Key settings:
 - `DEFAULT_TIMEZONE=Asia/Manila`, `DEFAULT_CURRENCY=PHP`
 - `MAX_CONVERSATION_HISTORY=20` — message history window
 - `INTENT_CONFIDENCE_THRESHOLD=0.6` — intent detection fallback threshold
+- `FORUM_MODE_ENABLED=true` — enable Telegram Forum Topics routing (CH-1.1). Set to `false` to keep DM-only behaviour even in forum groups.
 
 ---
 

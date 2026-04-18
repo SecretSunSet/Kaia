@@ -31,8 +31,19 @@ The team. All 4 channels work immediately via `PlaceholderExpert` — they respo
 
 | Command | Action |
 |---------|--------|
-| `/team` | Show full roster with knowledge scores |
-| `/exit` | Return to general KAIA |
+| `/team` | Show full roster (topic-based layout in forum mode) |
+| `/exit` | Return to general KAIA (DM mode only) |
+| `/setup_forum` | Create expert topics in a forum-enabled group (CH-1.1) |
+
+### Channel switching — DM vs Forum (CH-1.1)
+
+| Mode | How the active channel is chosen | Where the reply goes |
+|------|----------------------------------|----------------------|
+| DM (private chat) | `/hevn`, `/kazuki`, …, `/exit` mutate `user_channel_state` | The DM |
+| Forum group | The topic the message was posted in (via `forum_topic_mappings`) | Same topic (`message_thread_id` preserved) |
+| Regular group (non-forum) | Ignored | — |
+
+In forum mode the command-based switches are unnecessary — each expert has their own thread. The expert commands still work but redirect the user to the relevant topic rather than switching persistent state.
 
 ---
 

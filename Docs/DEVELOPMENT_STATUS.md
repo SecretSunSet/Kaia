@@ -5,11 +5,40 @@
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 1 | ✅ Complete | Core bot: 6 skills, voice, AWS deployment |
-| **Phase CH-1** | ✅ **Complete** | **Expert Channel System — Infrastructure** |
+| Phase CH-1 | ✅ Complete | Expert Channel System — Infrastructure |
+| **Phase CH-1.1** | ✅ **Complete** | **Telegram Forum Topics support (dual-mode routing)** |
 | Phase CH-2 | ⏳ Next | Hevn — Financial Advisor skills |
 | Phase CH-3 | ⏳ Planned | MakubeX — Tech Lead skills |
 | Phase CH-4 | ⏳ Planned | Kazuki — Investment Manager skills |
 | Phase CH-5 | ⏳ Planned | Akabane — Trading Strategist skills |
+
+---
+
+## Phase CH-1.1 Deliverables
+
+✅ Database migration `003_forum_topics.sql` — `forum_topic_mappings` table + RLS
+✅ `core/forum_manager.py` — `ForumManager` + `ForumSetupError`
+✅ `ForumTopicMapping` dataclass and full CRUD query set in `database/queries.py`
+✅ `FORUM_MODE_ENABLED` setting (default True)
+✅ `/setup_forum` command with permission-aware error handling
+✅ `handle_message` and `handle_voice` auto-detect forum vs DM and route accordingly
+✅ Expert replies (`_handle_expert_turn`) respect `message_thread_id`
+✅ `/team`, `/hevn`-style commands, `/exit` adapted for forum mode
+✅ Docs updated: CHANGELOG, API_REFERENCE, ARCHITECTURE, DATABASE, DEPLOYMENT, CONFIGURATION, SKILLS
+
+## Phase CH-1.1 Testing Checklist
+
+- [ ] Run `003_forum_topics.sql` in Supabase
+- [ ] Create a test group, add the bot, make it admin with *Manage Topics*, enable Topics
+- [ ] `/setup_forum` — 4 expert topics created
+- [ ] Post in 💰 Hevn topic — Hevn replies in that thread (first-visit onboarding)
+- [ ] Post in 🔧 MakubeX topic — MakubeX replies in that thread
+- [ ] Post in General topic — KAIA replies via the normal skill router
+- [ ] `/team` in forum — topic-based roster
+- [ ] `/hevn` in forum — redirect message pointing to Hevn's topic
+- [ ] `/exit` in forum — explanation message only
+- [ ] Voice message inside a topic stays in that topic
+- [ ] DM `/hevn` and `/exit` still switch persistent state as before
 
 ---
 

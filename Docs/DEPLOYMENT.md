@@ -25,6 +25,20 @@ The migration creates 4 new tables (`channels`, `user_channel_state`, `channel_p
 
 The migration is idempotent: `CREATE TABLE IF NOT EXISTS` on tables, `ON CONFLICT (channel_id) DO NOTHING` on seed inserts, `DROP POLICY IF EXISTS` before recreating RLS policies. Re-running it is safe.
 
+### Phase CH-1.1 — Forum Topics Support (migration 003)
+
+**BEFORE deploying Phase CH-1.1 code:**
+
+1. Open the Supabase SQL editor
+2. Paste `kaia/database/migrations/003_forum_topics.sql`
+3. Run it
+
+Creates the `forum_topic_mappings` table, adds an index on `chat_id`, enables RLS, and grants service-role access. Idempotent.
+
+### Bot permissions for Forum mode
+
+For `/setup_forum` to work the bot needs to be an **admin** in the target group with the **Manage Topics** permission enabled. The group also needs **Topics** turned on (Group Settings → Topics → ON). The `/setup_forum` command surfaces a clear error message if either prerequisite is missing.
+
 ### Verification
 
 After running, confirm in Supabase:

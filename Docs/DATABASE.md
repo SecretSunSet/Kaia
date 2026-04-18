@@ -79,3 +79,23 @@ All four tables have RLS enabled and a `service_role_all` policy (identical patt
 ## Seed Data
 
 5 channels inserted by the migration: `general`, `hevn`, `kazuki`, `akabane`, `makubex`. Uses `ON CONFLICT (channel_id) DO NOTHING` so re-running the migration is safe.
+
+---
+
+## Forum Topics Table (Migration 003)
+
+### `forum_topic_mappings`
+
+Maps Telegram forum-group topics to expert channels. One row per `(chat_id, channel_id)` pair; one row per `(chat_id, topic_id)` pair.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `chat_id` | BIGINT | Telegram group chat ID |
+| `channel_id` | VARCHAR(50) | Expert channel ID (`hevn`, `kazuki`, …) |
+| `topic_id` | BIGINT | `message_thread_id` of the topic in that group |
+| `created_at` | TIMESTAMPTZ | — |
+
+Unique constraints: `(chat_id, channel_id)` and `(chat_id, topic_id)`.
+
+Indexed on `chat_id`. RLS enabled with `service_role_all` policy, matching the other tables.
