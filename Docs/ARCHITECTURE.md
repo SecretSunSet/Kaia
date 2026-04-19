@@ -143,13 +143,14 @@ Each entry: `(category, key, priority, question_text)`.
 ```
 BaseExpert (ABC)
     │
-    └── PlaceholderExpert  ← default for all non-general channels
-            │                (Phase CH-1)
+    ├── HevnExpert  ✅ (Phase CH-2 — live)
+    │
+    └── PlaceholderExpert  ← default for kazuki, akabane, makubex
+            │                (will be replaced in CH-3/4/5)
             │
-            ├── HevnExpert  (Phase CH-2)
-            ├── KazukiExpert (Phase CH-4)
-            ├── AkabaneExpert (Phase CH-5)
-            └── MakubeXExpert (Phase CH-3)
+            ├── MakubeXExpert (Phase CH-3)
+            ├── KazukiExpert  (Phase CH-4)
+            └── AkabaneExpert (Phase CH-5)
 ```
 
 `BaseExpert` provides: conversation history access, message saving, background extraction, onboarding generation, response footer formatting.
@@ -168,3 +169,48 @@ When KAIA (general channel) handles a message via the `chat` skill, `detect_expe
 4. Track suggestion in memory — never suggest the same expert twice to the same user (until bot restart)
 
 This is **gentle** — KAIA never auto-switches, just suggests. User stays in control.
+
+---
+
+## Hevn — Data Flow (Phase CH-2)
+
+```
+                        User message in Hevn channel
+                                    │
+                                    ▼
+                       HevnExpert.handle(user, msg, channel)
+                                    │
+                ┌───────────────────┼──────────────────────┐
+                ▼                   ▼                      ▼
+       first visit?           intent classify       persona AI reply
+       ├─ Yes:                ├─ health_assessment  (market_trends,
+       │  onboarding          ├─ budget_coaching     education,
+       │  + schedule          ├─ goals               general_chat)
+       │    weekly digest     ├─ bills               │
+       │                      │                      ▼
+       │                      ▼                 AIEngine.chat
+       │              run specialized skill     + save messages
+       │              (numbers-backed reply)    + fire extraction
+       │                      │
+       │                      ▼
+       │              save messages
+       │              + fire extraction
+       ▼
+   reply with footer
+```
+
+Read paths:
+- **Budget summary**: `get_income_total` / `get_expense_total` / `get_spending_by_category` from the `transactions` table.
+- **Goals**: `financial_goals` (CH-2 table).
+- **Bills**: `recurring_bills` (CH-2 table).
+- **Memory**: shared `user_profile` + Hevn's `channel_profile` slice.
+
+Write paths:
+- **Channel history** → `channel_conversations`.
+- **Channel facts** → `channel_profile` (Hevn slice).
+- **Mirror** → financial facts (`income_info`, `debt_info`, `savings`, `retirement`, `insurance`, `goals`) also written to shared `user_profile` under category `"finances"` so Kazuki (CH-4) can read them.
+- **Goals / bills** → dedicated tables via query helpers.
+
+Proactive paths:
+- **Weekly digest** — scheduled on first `/hevn` visit; fires every Sunday 09:00 user TZ; delivered to Hevn's forum topic (if any) else DM.
+- **Salary allocation** — the Budget skill calls back into Hevn when an income+salary transaction is logged, only if the user has met Hevn.

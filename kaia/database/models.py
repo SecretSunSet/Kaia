@@ -136,3 +136,35 @@ class ForumTopicMapping:
     topic_id: int
     id: str = ""
     created_at: datetime | None = None
+
+
+# ── Hevn (Phase CH-2) ───────────────────────────────────────────────
+
+@dataclass
+class FinancialGoal:
+    user_id: str
+    name: str
+    target_amount: Decimal
+    id: str = ""
+    current_amount: Decimal = Decimal("0")
+    monthly_contribution: Decimal | None = None
+    deadline: date | None = None
+    priority: int = 1
+    status: str = "active"  # active, paused, completed
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class RecurringBill:
+    user_id: str
+    name: str
+    amount: Decimal
+    id: str = ""
+    category: str | None = None
+    due_day: int | None = None
+    recurrence: str = "monthly"
+    is_active: bool = True
+    last_paid: date | None = None
+    notes: str | None = None
+    created_at: datetime | None = None

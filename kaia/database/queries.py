@@ -20,6 +20,8 @@ from database.models import (
     ChannelProfileEntry,
     ChannelConversation,
     ForumTopicMapping,
+    FinancialGoal,
+    RecurringBill,
 )
 
 
@@ -798,3 +800,167 @@ async def delete_forum_topic_mappings(chat_id: int) -> None:
     """Delete all topic mappings for a chat (used when tearing down)."""
     sb = get_supabase()
     sb.table("forum_topic_mappings").delete().eq("chat_id", chat_id).execute()
+
+
+# ── Financial goals (Hevn — Phase CH-2) ────────────────────────────
+
+def _row_to_financial_goal(row: dict) -> FinancialGoal:
+    """Convert a Supabase row dict to a FinancialGoal dataclass."""
+    deadline_val = row.get("deadline")
+    monthly = row.get("monthly_contribution")
+    return FinancialGoal(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        target_amount=Decimal(str(row["target_amount"])),
+        current_amount=Decimal(str(row.get("current_amount") or 0)),
+        monthly_contribution=Decimal(str(monthly)) if monthly is not None else None,
+        deadline=date.fromisoformat(deadline_val) if deadline_val else None,
+        priority=row.get("priority", 1),
+        status=row.get("status", "active"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
+
+
+async def create_financial_goal(
+    user_id: str,
+    name: str,
+    target_amount: float,
+    deadline: str | None = None,
+    monthly_contribution: float | None = None,
+    priority: int = 1,
+) -> FinancialGoal:
+    """Insert a new financial goal and return it."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "name": name,
+        "target_amount": target_amount,
+        "priority": priority,
+    }
+    if deadline:
+        data["deadline"] = deadline
+    if monthly_contribution is not None:
+        data["monthly_contribution"] = monthly_contribution
+    result = sb.table("financial_goals").insert(data).execute()
+    return _row_to_financial_goal(result.data[0])
+
+
+async def get_financial_goals(
+    user_id: str, status: str | None = "active"
+) -> list[FinancialGoal]:
+    """Return financial goals for a user (optionally filtered by status)."""
+    sb = get_supabase()
+    query = sb.table("financial_goals").select("*").eq("user_id", user_id)
+    if status:
+        query = query.eq("status", status)
+    result = query.order("priority").execute()
+    return [_row_to_financial_goal(r) for r in result.data]
+
+
+async def get_financial_goal_by_id(goal_id: str) -> FinancialGoal | None:
+    """Fetch a single goal by ID."""
+    sb = get_supabase()
+    result = sb.table("financial_goals").select("*").eq("id", goal_id).execute()
+    if not result.data:
+        return None
+    return _row_to_financial_goal(result.data[0])
+
+
+async def update_financial_goal(goal_id: str, **fields: object) -> None:
+    """Update arbitrary fields on a financial goal."""
+    if not fields:
+        return
+    sb = get_supabase()
+    payload = dict(fields)
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    sb.table("financial_goals").update(payload).eq("id", goal_id).execute()
+
+
+async def delete_financial_goal(goal_id: str) -> None:
+    """Delete a financial goal by ID."""
+    sb = get_supabase()
+    sb.table("financial_goals").delete().eq("id", goal_id).execute()
+
+
+# ── Recurring bills (Hevn — Phase CH-2) ────────────────────────────
+
+def _row_to_recurring_bill(row: dict) -> RecurringBill:
+    """Convert a Supabase row dict to a RecurringBill dataclass."""
+    last_paid_val = row.get("last_paid")
+    return RecurringBill(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        amount=Decimal(str(row["amount"])),
+        category=row.get("category"),
+        due_day=row.get("due_day"),
+        recurrence=row.get("recurrence", "monthly"),
+        is_active=row.get("is_active", True),
+        last_paid=date.fromisoformat(last_paid_val) if last_paid_val else None,
+        notes=row.get("notes"),
+        created_at=row.get("created_at"),
+    )
+
+
+async def create_recurring_bill(
+    user_id: str,
+    name: str,
+    amount: float,
+    due_day: int | None = None,
+    category: str | None = None,
+    recurrence: str = "monthly",
+    notes: str | None = None,
+) -> RecurringBill:
+    """Insert a new recurring bill and return it."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "name": name,
+        "amount": amount,
+        "recurrence": recurrence,
+    }
+    if due_day is not None:
+        data["due_day"] = due_day
+    if category:
+        data["category"] = category
+    if notes:
+        data["notes"] = notes
+    result = sb.table("recurring_bills").insert(data).execute()
+    return _row_to_recurring_bill(result.data[0])
+
+
+async def get_recurring_bills(
+    user_id: str, active_only: bool = True
+) -> list[RecurringBill]:
+    """Return recurring bills for a user."""
+    sb = get_supabase()
+    query = sb.table("recurring_bills").select("*").eq("user_id", user_id)
+    if active_only:
+        query = query.eq("is_active", True)
+    result = query.order("due_day").execute()
+    return [_row_to_recurring_bill(r) for r in result.data]
+
+
+async def update_recurring_bill(bill_id: str, **fields: object) -> None:
+    """Update arbitrary fields on a recurring bill."""
+    if not fields:
+        return
+    sb = get_supabase()
+    sb.table("recurring_bills").update(dict(fields)).eq("id", bill_id).execute()
+
+
+async def delete_recurring_bill(bill_id: str) -> None:
+    """Delete a recurring bill by ID."""
+    sb = get_supabase()
+    sb.table("recurring_bills").delete().eq("id", bill_id).execute()
+
+
+async def get_recurring_bill_by_id(bill_id: str) -> RecurringBill | None:
+    """Fetch a single recurring bill by ID."""
+    sb = get_supabase()
+    result = sb.table("recurring_bills").select("*").eq("id", bill_id).execute()
+    if not result.data:
+        return None
+    return _row_to_recurring_bill(result.data[0])

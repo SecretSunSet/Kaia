@@ -93,7 +93,89 @@ register_expert(channel_id, expert_cls) -> None
 get_expert(channel_id, ai_engine) -> BaseExpert | None
 ```
 
-`PlaceholderExpert` is auto-registered for all 4 non-general channels at import time. Phase CH-2+ will override these with specialized expert classes.
+`HevnExpert` is registered for `CHANNEL_HEVN` (CH-2). The other 3 non-general channels still resolve to `PlaceholderExpert` and will be overridden in CH-3 / CH-4 / CH-5.
+
+---
+
+## Hevn Expert (Phase CH-2)
+
+### `HevnExpert` — `kaia/experts/hevn/expert.py`
+
+Replaces `PlaceholderExpert` for `channel_id = "hevn"`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `handle(user, message, channel)` | `SkillResult` | Main route: first-visit → schedule digest → intent → specialized skill OR persona response |
+| `_run_health(user_id, currency)` | `str` | Run `FinancialHealthSkill` and format report |
+| `_run_goals(user, message, currency)` | `str` | Create a goal (if parseable) or show goals overview |
+| `_run_bills(user, message, currency)` | `str` | Upcoming view, add-bill (if parseable), or full list |
+| `_run_coaching(user_id, currency)` | `str` | Pattern + waste analysis combined |
+| `_persona_response(user, message, channel, intent)` | `AIResponse` | AI reply with Hevn's system prompt + budget + goals + gap context |
+
+### Hevn's skills — `kaia/experts/hevn/skills/`
+
+| Class | Key Methods |
+|-------|-------------|
+| `FinancialHealthSkill` | `assess(user_id, currency) -> dict` / `format_health_report(assessment, currency)` |
+| `BudgetCoachingSkill` | `analyze_patterns(user_id, period_days)` / `identify_waste(user_id)` / formatters |
+| `GoalsManagerSkill` | `create_goal` / `update_progress` (returns `(goal, milestones_hit)`) / `get_goals` / `project_timeline` / `suggest_allocation(user_id, available)` / `format_goals_overview` |
+| `BillsTrackerSkill` | `add_bill` / `list_bills` (adds `next_due`) / `get_upcoming(days)` / `calculate_monthly_total` / `identify_forgotten_subscriptions` / `mark_paid` |
+| `MarketTrendsSkill` | `get_bsp_rate` / `get_psei_snapshot` / `get_usd_php_rate` / `get_financial_news_ph` / `explain_impact(ai, topic, user_profile_text)` |
+| `EducationSkill` | `get_user_level(user_id)` / `explain_topic(ai, user_id, topic)` / `suggest_next_topic` / `quiz_user` |
+| `ProactiveAlertsSkill` | `generate_weekly_digest(user_id, currency)` / `check_spending_alerts` / `check_goal_milestones` / `handle_salary_received(user_id, amount, currency)` |
+
+### Hevn's parsers — `kaia/experts/hevn/parser.py`
+
+| Function | Returns |
+|----------|---------|
+| `classify_hevn_intent(ai, message)` | One of `health_assessment` / `budget_coaching` / `goals` / `bills` / `market_trends` / `education` / `general_chat` |
+| `parse_goal_creation(ai, message)` | `dict \| None` with `name, target, deadline, monthly, priority` |
+| `parse_bill_creation(ai, message)` | `dict \| None` with `name, amount, due_day, category, recurrence` |
+
+### Hevn's extractor — `kaia/experts/hevn/extractor.py`
+
+```python
+await hevn_extract_and_save(ai_engine, user_id, conversation_messages) -> int
+```
+
+Delegates to `channel_extract_and_save(channel_id="hevn", ...)` and then mirrors entries whose category is in `{income_info, debt_info, savings, retirement, insurance, goals}` into the shared `user_profile` table under category `"finances"`.
+
+### Scheduler hooks — `kaia/core/scheduler.py`
+
+| Function | Description |
+|----------|-------------|
+| `schedule_hevn_weekly_digest(user_id, telegram_id, timezone)` | Register the Sunday 09:00 digest job; called on first `/hevn` visit |
+| `cancel_hevn_weekly_digest(user_id)` | Remove the job |
+| `_fire_hevn_digest(...)` | Internal cron callback — generates digest via `ProactiveAlertsSkill` and routes to the forum topic or DM |
+
+### New data models — `kaia/database/models.py`
+
+```python
+@dataclass class FinancialGoal:
+    user_id, name, target_amount
+    id="", current_amount=Decimal("0"), monthly_contribution=None
+    deadline=None, priority=1, status="active", created_at=None, updated_at=None
+
+@dataclass class RecurringBill:
+    user_id, name, amount
+    id="", category=None, due_day=None, recurrence="monthly"
+    is_active=True, last_paid=None, notes=None, created_at=None
+```
+
+### New query functions — `kaia/database/queries.py`
+
+| Function | Returns |
+|----------|---------|
+| `create_financial_goal(...)` | `FinancialGoal` |
+| `get_financial_goals(user_id, status=None)` | `list[FinancialGoal]` |
+| `get_financial_goal_by_id(goal_id)` | `FinancialGoal \| None` |
+| `update_financial_goal(goal_id, **fields)` | `FinancialGoal` |
+| `delete_financial_goal(goal_id)` | `None` |
+| `create_recurring_bill(...)` | `RecurringBill` |
+| `get_recurring_bills(user_id, active_only=True)` | `list[RecurringBill]` |
+| `get_recurring_bill_by_id(bill_id)` | `RecurringBill \| None` |
+| `update_recurring_bill(bill_id, **fields)` | `RecurringBill` |
+| `delete_recurring_bill(bill_id)` | `None` |
 
 ---
 
