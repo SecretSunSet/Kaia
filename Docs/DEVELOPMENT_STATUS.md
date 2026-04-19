@@ -6,11 +6,48 @@
 |-------|--------|-------|
 | Phase 1 | ✅ Complete | Core bot: 6 skills, voice, AWS deployment |
 | Phase CH-1 | ✅ Complete | Expert Channel System — Infrastructure |
-| **Phase CH-1.1** | ✅ **Complete** | **Telegram Forum Topics support (dual-mode routing)** |
-| Phase CH-2 | ⏳ Next | Hevn — Financial Advisor skills |
-| Phase CH-3 | ⏳ Planned | MakubeX — Tech Lead skills |
+| Phase CH-1.1 | ✅ Complete | Telegram Forum Topics support (dual-mode routing) |
+| **Phase CH-2** | ✅ **Complete** | **Hevn — Financial Advisor (7 skills, digest, salary allocation)** |
+| Phase CH-3 | ⏳ Next | MakubeX — Tech Lead skills |
 | Phase CH-4 | ⏳ Planned | Kazuki — Investment Manager skills |
 | Phase CH-5 | ⏳ Planned | Akabane — Trading Strategist skills |
+
+---
+
+## Phase CH-2 Deliverables
+
+✅ Migration `004_hevn.sql` — `financial_goals`, `recurring_bills` tables + indexes + RLS
+✅ New dataclasses `FinancialGoal`, `RecurringBill` and CRUD in `database/queries.py`
+✅ `experts/hevn/` package: `expert.py`, `prompts.py`, `parser.py`, `extractor.py`
+✅ Seven specialized skills under `experts/hevn/skills/`:
+  `health_assessment`, `budget_coaching`, `goals_manager`, `bills_tracker`,
+  `market_trends`, `education`, `proactive`
+✅ `HevnExpert` registered for `CHANNEL_HEVN` in the expert registry
+✅ Weekly digest scheduler (`schedule_hevn_weekly_digest`) — Sunday 09:00 user's TZ
+✅ Digest respects forum topic routing, falls back to DM with footer
+✅ Budget Tracker integration — proactive salary-allocation suggestion
+✅ Channel-specific fact mirror: income/debt/savings/goals facts mirrored to shared `user_profile` under `finances`
+✅ Four shortcut commands: `/hevn_health`, `/hevn_goals`, `/hevn_bills`, `/hevn_digest`
+✅ `/reset` cascades through `financial_goals` and `recurring_bills`
+✅ Docs updated: CHANGELOG, API_REFERENCE, ARCHITECTURE, DATABASE, SKILLS, DEVELOPMENT_STATUS
+
+## Phase CH-2 Testing Checklist
+
+- [ ] Run `004_hevn.sql` in Supabase
+- [ ] `/hevn` (first visit) — Hevn's onboarding, weekly digest scheduled on first visit
+- [ ] "I earn ₱45,000/month" — fact extracted to Hevn's channel_profile and mirrored to shared profile under `finances`
+- [ ] "How am I doing financially?" — full weighted health report
+- [ ] "Where am I wasting money?" — waste report with specific suggestions
+- [ ] "I want to save ₱50,000 for emergency fund by Dec" — goal created, confirmation message
+- [ ] `/hevn_goals` — formatted goals overview
+- [ ] "Remind me my Netflix is ₱549 on the 20th" — bill added
+- [ ] `/hevn_bills` — upcoming/active bills
+- [ ] "What's happening with interest rates?" — market-trends persona response
+- [ ] "Explain MP2" — level-adapted education, topic tracked in profile
+- [ ] `/hevn_digest` — full digest on demand
+- [ ] Log salary via budget ("received ₱45,000 salary") — Hevn appends allocation suggestion
+- [ ] Wait for Sunday 09:00 user TZ — digest delivered (to Hevn's topic in forum, or DM)
+- [ ] `/reset` + CONFIRM DELETE — `financial_goals` and `recurring_bills` deleted too
 
 ---
 
@@ -74,12 +111,9 @@
 
 ## Architecture Summary
 
-Phase CH-1 ships the foundation — after this phase:
+After Phase CH-2:
 
-- Users can switch to any of 4 expert channels and the bot responds in character
-- Each expert has its own memory profile and conversation history
-- Each expert knows what knowledge it still needs about the user and asks naturally
-- General KAIA flow is unchanged; new flow only activates when user is in a non-general channel
-- No specialized expert skills yet — `PlaceholderExpert` uses AI + persona only
-
-Phase CH-2 through CH-5 will each replace `PlaceholderExpert` for one channel with a full specialized implementation (e.g., `HevnExpert` with budget coaching, savings goal tracking, financial education).
+- Hevn is the first fully realized expert — 7 specialized skills, own extractor, scheduled weekly digest, budget tracker integration.
+- Kazuki, Akabane, MakubeX continue on `PlaceholderExpert` until their respective phases.
+- Shared `user_profile` under category `finances` is Hevn's cross-expert hand-off — Kazuki (CH-4) will read these facts when offering investment advice.
+- Phase CH-3 (MakubeX — Tech Lead) is next.

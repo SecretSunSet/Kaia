@@ -377,3 +377,71 @@ async def _fire_briefing(user_id: str, telegram_id: int, bot: Bot) -> None:
 
     except Exception as exc:
         logger.error("Failed to send daily briefing to {}: {}", telegram_id, exc)
+
+
+# ── Hevn Weekly Digest ─────────────────────────────────────────────
+
+async def schedule_hevn_weekly_digest(
+    user_id: str,
+    telegram_id: int,
+    timezone: str = "Asia/Manila",
+    bot: Bot | None = None,
+) -> None:
+    """Schedule Hevn's weekly digest every Sunday at 9 AM user's timezone."""
+    scheduler = get_scheduler()
+    job_id = f"hevn_digest_{user_id}"
+
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+
+    the_bot = bot or _bot_ref
+    if the_bot is None:
+        logger.warning("Cannot schedule Hevn digest — no bot reference available")
+        return
+
+    trigger = CronTrigger(
+        day_of_week="sun", hour=9, minute=0, timezone=ZoneInfo(timezone)
+    )
+    scheduler.add_job(
+        _fire_hevn_digest,
+        trigger=trigger,
+        id=job_id,
+        args=[user_id, telegram_id, the_bot],
+        replace_existing=True,
+    )
+    logger.info("Hevn weekly digest scheduled for user {} (Sun 9:00 {})", user_id, timezone)
+
+
+async def cancel_hevn_weekly_digest(user_id: str) -> None:
+    """Cancel Hevn's weekly digest for a user."""
+    scheduler = get_scheduler()
+    job_id = f"hevn_digest_{user_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+        logger.info("Hevn weekly digest cancelled for user {}", user_id)
+
+
+async def _fire_hevn_digest(user_id: str, telegram_id: int, bot: Bot) -> None:
+    """Generate and send Hevn's weekly digest."""
+    logger.info("Firing Hevn digest for user {} (tg={})", user_id, telegram_id)
+    try:
+        from experts.hevn.skills.proactive import ProactiveAlertsSkill
+        from core.forum_manager import ForumManager
+
+        user = await get_or_create_user(telegram_id)
+        skill = ProactiveAlertsSkill()
+        text = await skill.generate_weekly_digest(user.id, user.currency or "PHP")
+
+        # Forum-mode delivery: route to Hevn's topic if one exists.
+        forum_mgr = ForumManager()
+        topic_id = await forum_mgr.get_topic_for_channel(telegram_id, "hevn")
+
+        kwargs: dict = {"parse_mode": "Markdown"}
+        if topic_id is not None:
+            kwargs["message_thread_id"] = topic_id
+        else:
+            text = f"{text}\n\n_/hevn to discuss any of this._"
+
+        await bot.send_message(chat_id=telegram_id, text=text, **kwargs)
+    except Exception as exc:
+        logger.error("Failed to send Hevn digest to {}: {}", telegram_id, exc)

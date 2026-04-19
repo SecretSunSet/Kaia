@@ -115,7 +115,31 @@ class BudgetSkill(BaseSkill):
             if warning:
                 text += warning
 
+        # Proactive salary allocation suggestion (if Hevn has been met)
+        if parsed["type"] == "income" and parsed["category"] == "salary":
+            try:
+                suggestion = await self._hevn_salary_allocation(
+                    user, float(parsed["amount"])
+                )
+                if suggestion:
+                    text += f"\n\n{suggestion}"
+            except Exception as exc:
+                logger.debug("Hevn salary allocation skipped: {}", exc)
+
         return SkillResult(text=text, skill_name=self.name)
+
+    async def _hevn_salary_allocation(
+        self, user: User, amount: float
+    ) -> str | None:
+        """Ask Hevn for a salary allocation suggestion — only if user has met her."""
+        convos = await db.count_channel_conversations(user.id, "hevn")
+        if convos == 0:
+            return None
+        from experts.hevn.skills.proactive import ProactiveAlertsSkill
+        skill = ProactiveAlertsSkill()
+        return await skill.handle_salary_received(
+            user.id, amount, user.currency or "PHP"
+        )
 
     async def _check_budget_warning(
         self, user_id: str, category: str, currency_symbol: str

@@ -226,6 +226,8 @@ async def handle_reset_confirmation(update: Update) -> bool:
             "reminders",
             "memory_log",
             "budget_limits",
+            "financial_goals",
+            "recurring_bills",
             "user_profile",
             "channel_conversations",
             "channel_profile",

@@ -40,6 +40,12 @@ from database.queries import (
     get_channel_profile,
 )
 from bot.commands import cmd_status_extended, cmd_export, cmd_reset, handle_reset_confirmation
+from bot.hevn_commands import (
+    cmd_hevn_bills,
+    cmd_hevn_digest,
+    cmd_hevn_goals,
+    cmd_hevn_health,
+)
 from bot.middleware import check_rate_limit, track_ai_usage
 from experts import get_expert
 from experts.placeholder import PlaceholderExpert
@@ -151,6 +157,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/akabane — Trading strategist\n"
         "/makubex — Tech lead\n"
         "/exit — Return to general KAIA chat\n\n"
+        "💰 *Hevn shortcuts:*\n"
+        "/hevn_health — Financial health score\n"
+        "/hevn_goals — Show all goals\n"
+        "/hevn_bills — Upcoming bills\n"
+        "/hevn_digest — Weekly digest on demand\n\n"
         "⚙️ *Commands:*\n"
         "/start — Welcome message\n"
         "/help — This help text\n"
@@ -837,6 +848,12 @@ def main() -> None:
     app.add_handler(CommandHandler("exit", cmd_exit))
     app.add_handler(CommandHandler("team", cmd_team))
     app.add_handler(CommandHandler("setup_forum", cmd_setup_forum))
+
+    # Hevn shortcut commands
+    app.add_handler(CommandHandler("hevn_health", cmd_hevn_health))
+    app.add_handler(CommandHandler("hevn_goals", cmd_hevn_goals))
+    app.add_handler(CommandHandler("hevn_bills", cmd_hevn_bills))
+    app.add_handler(CommandHandler("hevn_digest", cmd_hevn_digest))
 
     # Text messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

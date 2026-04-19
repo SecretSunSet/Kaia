@@ -1,5 +1,45 @@
 # Changelog
 
+## [2026-04-19] Phase CH-2 — Hevn (Financial Advisor) Full Implementation
+
+### Added
+- **Hevn expert** — replaces the generic `PlaceholderExpert` for the `hevn` channel with a full financial advisor with 7 specialized skills.
+- **New database tables** (migration `004_hevn.sql`):
+  - `financial_goals` — per-user goals with target, current progress, monthly contribution, deadline, priority, and status (`active`/`paused`/`completed`).
+  - `recurring_bills` — per-user bills with amount, due_day, recurrence (`monthly`/`weekly`/`yearly`/`quarterly`), category, active flag, last_paid.
+- **New model dataclasses**: `FinancialGoal`, `RecurringBill`.
+- **New query helpers**: full CRUD for financial goals and recurring bills in `database/queries.py`.
+- **`HevnExpert`** (`experts/hevn/expert.py`) — routes first-visit onboarding, intent classification, specialized-skill dispatch, and persona-driven AI response.
+- **Seven Hevn skills** under `experts/hevn/skills/`:
+  - `health_assessment` — weighted 1-100 financial health score across savings rate, debt ratio, emergency fund, income stability, expense control.
+  - `budget_coaching` — spending pattern analysis, period-over-period change, waste detection (food delivery, subscriptions, repeated vendors).
+  - `goals_manager` — create / track / project goals; milestone celebrations at 25/50/75/100%; salary allocation suggestions.
+  - `bills_tracker` — recurring bills with computed next-due dates, upcoming-7-days view, monthly-total calculation, forgotten-subscription detection.
+  - `market_trends` — BSP rate, PSEi, USD/PHP, PH financial news via web search; per-user impact explanation.
+  - `education` — progressive topic catalog (basics → advanced, PH-specific); adapts explanations to user level; tracks learned topics.
+  - `proactive` — weekly digest, spending alerts, goal milestones, salary-received allocation suggestions.
+- **Hevn's memory extractor** (`experts/hevn/extractor.py`) — extends the channel extractor; major financial facts (income, debt, savings, retirement, insurance, goals) are mirrored to the shared `user_profile` under category `finances` so other experts (Kazuki, etc.) can read them.
+- **Intent classifier** (`experts/hevn/parser.py`) — deterministic keyword short-circuit with AI JSON fallback; also includes goal and bill parsers.
+- **Weekly digest scheduler** (`core/scheduler.py`: `schedule_hevn_weekly_digest`) — fires every Sunday at 09:00 user's timezone using APScheduler `CronTrigger`. Registered on the user's first `/hevn` visit (never before), so users don't receive digests they didn't ask for. Digest is delivered to the Hevn forum topic if one exists for that chat, otherwise to DM with a `/hevn to discuss` footer.
+- **Budget Tracker integration** — when a salary income is logged, if the user has already met Hevn, a proactive allocation suggestion is appended to the transaction confirmation.
+- **Four Hevn shortcut commands** (work in DM and Forum Topics mode):
+  - `/hevn_health` — on-demand financial health report.
+  - `/hevn_goals` — formatted goals overview.
+  - `/hevn_bills` — upcoming bills (fallback to full bill list).
+  - `/hevn_digest` — generate the weekly digest on demand.
+
+### Changed
+- `experts/__init__.py` — registers `HevnExpert` for `CHANNEL_HEVN`; other channels remain on `PlaceholderExpert`.
+- `skills/budget/handler.py` — `_handle_log_transaction` appends Hevn's salary allocation suggestion for income+salary transactions when the user has met Hevn.
+- `bot/commands.py` — `/reset` now cascades through `financial_goals` and `recurring_bills`.
+- `bot/telegram_bot.py` — registers the four new Hevn commands and lists them under "Hevn shortcuts" in `/help`.
+
+### Notes
+- Migration `004_hevn.sql` must be run in Supabase before this version is deployed.
+- The digest respects the user's timezone stored in `users.timezone` (defaults to `Asia/Manila`).
+
+---
+
 ## [2026-04-19] Phase CH-1.1 — Forum Topics Support
 
 ### Added
