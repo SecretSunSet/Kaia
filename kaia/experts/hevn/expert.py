@@ -130,14 +130,37 @@ class HevnExpert(BaseExpert):
         symbol = CURRENCY_SYMBOLS.get(currency, currency)
         low = message.lower()
         create_markers = (
-            "save", "goal", "set a goal", "emergency fund", "start saving",
+            "save", "goal", "set a goal", "set this as", "set that as",
+            "let's set", "emergency fund", "start saving", "create a goal",
+            "make this my goal", "new goal",
         )
         view_markers = ("show", "list", "my goals", "progress", "how am i doing on")
 
-        if any(m in low for m in create_markers) and any(
-            ch.isdigit() for ch in message
-        ):
-            parsed = await parse_goal_creation(self.ai, message)
+        wants_create = any(m in low for m in create_markers)
+        has_explicit_numbers = any(ch.isdigit() for ch in message)
+        references_prior = any(
+            ref in low for ref in ("this goal", "that goal", "set this as", "set that as", "let's set", "first goal")
+        )
+
+        if wants_create and (has_explicit_numbers or references_prior):
+            parse_input = message
+            # Pull in recent Hevn conversation so references like "set this as
+            # our first goal" can be resolved from what Hevn just suggested.
+            if references_prior or not has_explicit_numbers:
+                recent = await db.get_channel_conversations(
+                    user.id, "hevn", limit=6
+                )
+                if recent:
+                    context_block = "\n".join(
+                        f"{m.role}: {m.content}" for m in recent
+                    )
+                    parse_input = (
+                        f"Recent conversation (resolve references like "
+                        f"'this goal' / 'that goal' from here):\n"
+                        f"{context_block}\n\nCurrent message: {message}"
+                    )
+
+            parsed = await parse_goal_creation(self.ai, parse_input)
             if parsed:
                 goal = await self.goals.create_goal(
                     user_id=user.id,
@@ -158,8 +181,13 @@ class HevnExpert(BaseExpert):
                     f"{symbol}{float(goal.target_amount):,.0f}{deadline_str}{monthly_str}.\n\n"
                     f"I'll track progress for you."
                 )
+            if references_prior:
+                return (
+                    "Happy to lock that in — can you remind me of the target "
+                    "amount and roughly when you want to hit it?"
+                )
 
-        if any(m in low for m in view_markers) or "goal" in low:
+        if any(m in low for m in view_markers) or "my goals" in low:
             return await self.goals.format_goals_overview(user.id, currency)
 
         # Fall back to overview

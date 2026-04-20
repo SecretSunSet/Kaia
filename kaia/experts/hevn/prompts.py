@@ -76,15 +76,24 @@ If no financial facts found, return {"facts": []}.
 """
 
 
-HEVN_INTENT_PROMPT = """Classify this message into one of Hevn's skills:
+HEVN_INTENT_PROMPT = """Classify this message into one of Hevn's skills.
 
-- health_assessment: User wants overall financial health evaluation ("how am I doing financially")
+CRITICAL: Distinguish asking advice ABOUT goals/money from managing goal records.
+  "How much should my emergency fund be?"   → general_chat (wants advice)
+  "Show my goals" / "Set emergency fund"    → goals (manages records)
+
+Skills:
+- health_assessment: Overall financial health evaluation ("how am I doing financially")
 - budget_coaching: Spending patterns, waste analysis, budget advice
-- goals: Creating/updating/viewing savings goals, progress check
+- goals: User wants to CREATE, UPDATE, or LIST saving goals. Contains explicit
+  verbs like "set a goal", "create goal", "show my goals", "progress on my goal",
+  or a concrete target amount + timeline.
 - bills: Recurring bills, subscriptions, due dates
 - market_trends: Interest rates, market news, economic events
 - education: Wants to learn about financial concepts
-- general_chat: Open-ended conversation, questions, advice
+- general_chat: Open-ended conversation OR asking for advice / recommendation
+  / personalized analysis. "How much should I save?", "Is my spending okay?",
+  "What's a good savings rate?", "Should I invest or pay off debt?"
 
 Message: "{message}"
 

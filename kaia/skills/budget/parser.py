@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from datetime import date
 
 from loguru import logger
 
 from core.ai_engine import AIEngine
-from skills.budget.prompts import build_parse_prompt, build_budget_limit_parse_prompt
+from skills.budget.prompts import (
+    build_budget_limit_parse_prompt,
+    build_parse_prompt,
+)
+
+# Header lines like "log these expenses:" / "add these to expenses" that should
+# be skipped when parsing a bulk block — they contain no numeric amount.
+_BULK_HEADER_RE = re.compile(
+    r"^\s*(log|add|record)\b[^\d\n]*$", re.IGNORECASE
+)
 
 
 async def parse_transaction(
@@ -34,6 +45,42 @@ async def parse_transaction(
     except Exception as exc:
         logger.error("Transaction parsing failed: {}", exc)
         return None
+
+
+async def parse_bulk_transactions(
+    ai_engine: AIEngine,
+    message: str,
+    currency: str = "PHP",
+) -> list[dict]:
+    """Parse a multi-line transaction block into a list of transactions.
+
+    Each non-empty line with a number is parsed concurrently using the same
+    single-transaction parser. Lines that look like headers ("log these
+    expenses:", "add to expense") are skipped.
+    """
+    lines: list[str] = []
+    for raw in message.split("\n"):
+        line = raw.strip().lstrip("-•*").strip()
+        if not line:
+            continue
+        if _BULK_HEADER_RE.match(line):
+            continue
+        if not any(c.isdigit() for c in line):
+            continue
+        lines.append(line)
+
+    if not lines:
+        return []
+
+    results = await asyncio.gather(
+        *(parse_transaction(ai_engine, ln, currency) for ln in lines),
+        return_exceptions=True,
+    )
+    transactions: list[dict] = []
+    for res in results:
+        if isinstance(res, dict):
+            transactions.append(res)
+    return transactions
 
 
 async def parse_budget_limit(
