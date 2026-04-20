@@ -1,5 +1,47 @@
 # Changelog
 
+## [2026-04-20] Hotfix — Budget Logging & Hevn Intent Detection
+
+### Fixed
+- **Budget: verbose log phrases misclassified as summary.** Messages like
+  "log into expenses Tiktok Shop Elyse essentials 350 pesos" contained the
+  word "expenses" and were routed to the summary handler instead of being
+  logged as a transaction. `skills/budget/handler.py` now runs an explicit
+  log-intent check (`_is_log_request`) before the summary check, so any
+  phrasing starting with `log`, `add to expense(s)`, `record`, `paid`,
+  `spent`, `bought` is routed to `_handle_log_transaction`.
+- **Budget: single-line parser strips command verbs.** The parse prompt
+  (`skills/budget/prompts.py`) now instructs the model to drop routing
+  phrases ("log into expenses", "add to expense", "log these expenses:")
+  from the description and accept free-form descriptions with merchants /
+  modifiers / dash / colon separators.
+- **Hevn: advice-style questions routed to goals.list().** "How much
+  should my emergency fund be?" matched the "emergency fund" short-circuit
+  and returned the "No active goals yet" boilerplate. `classify_hevn_intent`
+  now has an `ADVICE_MARKERS` list (`"how much should"`, `"should i "`,
+  `"is my "`, `"what's a good"`, etc.) that wins over all other
+  short-circuits and routes to `general_chat` so Hevn answers with
+  personalized advice. Goal short-circuit tightened to explicit markers
+  like "set a goal", "show my goals", "create goal".
+- **Hevn: goal references from conversation context.** `_run_goals` now
+  pulls the last 6 Hevn messages via `get_channel_conversations` when the
+  user says "let's set this as our first goal" / "set that as my goal",
+  so the goal parser can resolve the target from Hevn's prior suggestion.
+  If still unparseable, Hevn asks for the missing target + timeline
+  instead of silently falling back to the goals list.
+
+### Added
+- **`parse_bulk_transactions`** (`skills/budget/parser.py`) — parses a
+  multi-line transaction block (e.g. `log these expenses\n140 - Dishwashing
+  Liquid\n120 - 1.5L Coconut oil\n177 - Eggs`) into a list of transactions.
+  Header lines without numbers are skipped; lines are parsed concurrently.
+- **`format_bulk_log_response`** (`skills/budget/prompts.py`) — per-category
+  breakdown with totals for bulk log confirmations.
+- **`HEVN_INTENT_PROMPT`** rewritten to explicitly distinguish ASKING
+  ADVICE about goals vs MANAGING goal records.
+
+---
+
 ## [2026-04-19] Phase CH-2 — Hevn (Financial Advisor) Full Implementation
 
 ### Added

@@ -97,6 +97,37 @@ get_expert(channel_id, ai_engine) -> BaseExpert | None
 
 ---
 
+## Budget Skill — `kaia/skills/budget/`
+
+### Parser — `kaia/skills/budget/parser.py`
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `parse_transaction(ai_engine, message, currency="PHP")` | `dict \| None` with `amount, type, category, description, date` | Parse a single natural-language line into a transaction. Tolerates verbose descriptions ("Tiktok Shop Elyse essentials 350 pesos") and dash/colon separators ("140 - Dishwashing Liquid"). Strips routing verbs like "log into expenses". |
+| `parse_bulk_transactions(ai_engine, message, currency="PHP")` | `list[dict]` | Parse a multi-line block (header lines like "log these expenses:" are skipped). Each line is parsed concurrently via `parse_transaction`. Returns only successfully-parsed transactions. |
+| `parse_budget_limit(ai_engine, message, currency="PHP")` | `dict \| None` with `category, amount` | Parse a budget limit request. |
+
+### Handler routing — `kaia/skills/budget/handler.py`
+
+Order of precedence in `BudgetSkill.handle`:
+1. Undo → list limits → delete limit → set limit → comparison
+2. **Log intent** (`_is_log_request`) — messages starting with `log`, `add to expense(s)`, `record`, `paid`, `spent`, `bought`, OR any multi-line block with ≥2 numeric lines (`_is_bulk_entry`). Wins over summary so "log into expenses ..." logs correctly.
+3. Summary (`_is_summary_request`) — "summary", "how much", "spending", "expenses", etc.
+4. Fallback: try to log as a single transaction.
+
+### Prompts & formatters — `kaia/skills/budget/prompts.py`
+
+| Function | Description |
+|----------|-------------|
+| `build_parse_prompt(currency, today)` | Single-line parser prompt |
+| `build_budget_limit_parse_prompt(currency)` | Budget limit parser prompt |
+| `build_summary_prompt(period, transaction_data, currency_symbol)` | Summary narrative prompt |
+| `format_transaction_confirmation(amount, type, category, description, currency_symbol)` | Single log confirmation |
+| `format_bulk_log_response(logged, failed, currency_symbol)` | Bulk log — per-category breakdown with totals and a "couldn't parse N" tail when some lines failed |
+| `format_budget_warning(category, spent, limit, currency_symbol)` | Budget-limit alert string |
+
+---
+
 ## Hevn Expert (Phase CH-2)
 
 ### `HevnExpert` — `kaia/experts/hevn/expert.py`
@@ -128,8 +159,8 @@ Replaces `PlaceholderExpert` for `channel_id = "hevn"`.
 
 | Function | Returns |
 |----------|---------|
-| `classify_hevn_intent(ai, message)` | One of `health_assessment` / `budget_coaching` / `goals` / `bills` / `market_trends` / `education` / `general_chat` |
-| `parse_goal_creation(ai, message)` | `dict \| None` with `name, target, deadline, monthly, priority` |
+| `classify_hevn_intent(ai, message)` | One of `health_assessment` / `budget_coaching` / `goals` / `bills` / `market_trends` / `education` / `general_chat`. Advice-style questions (`ADVICE_MARKERS`: "how much should", "should i ", "what's a good", "is my ", "do you recommend", "what would you") win over all other short-circuits and return `general_chat`, so Hevn answers from her persona instead of hitting the goals list. |
+| `parse_goal_creation(ai, message)` | `dict \| None` with `name, target, deadline, monthly, priority`. Caller can prepend recent conversation context to help the model resolve references like "set this as our first goal". |
 | `parse_bill_creation(ai, message)` | `dict \| None` with `name, amount, due_day, category, recurrence` |
 
 ### Hevn's extractor — `kaia/experts/hevn/extractor.py`

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from config.constants import BUDGET_CATEGORIES
+from config.constants import BUDGET_CATEGORIES, BUDGET_CATEGORY_EMOJIS
 
 
 CATEGORIES_STR = ", ".join(BUDGET_CATEGORIES)
@@ -28,9 +28,16 @@ If this IS a financial transaction, return ONLY this JSON:
 If this is NOT a financial transaction, return: {{"is_transaction": false}}
 
 Rules:
-- "spent", "paid", "bought", "grabbed" = expense
-- "received", "got", "earned", "payment" (when receiving) = income
-- Detect the most specific category possible
+- "log", "add", "record", "spent", "paid", "bought", "grabbed" = expense (unless
+  the line explicitly says salary/income/received)
+- "received", "got", "earned", "salary", "payment" (when receiving) = income
+- Strip command phrases — "log into expenses", "add to expense", "log expense",
+  "log these expenses:" are routing verbs, NOT part of the description
+- Accept free-form descriptions with multiple words, merchants, and modifiers
+  (e.g. "Tiktok Shop Elyse essentials 350 pesos" → amount 350,
+  description "Tiktok Shop Elyse essentials")
+- Accept dash/colon separators ("140 - Dishwashing Liquid", "Siopao: 135")
+- Detect the most specific category possible. If unsure, pick "other"
 - If amount has no currency symbol, assume {currency}
 - "yesterday" = {yesterday.isoformat()}, "last week" = approximate
 - Numbers with commas like "1,500" or "15,000" = strip commas
@@ -88,6 +95,44 @@ def format_transaction_confirmation(
     icon = "💵" if type == "income" else "💸"
     desc = f" ({description})" if description else ""
     return f"{icon} Logged: {currency_symbol}{amount:,.2f} {type} — {category.title()}{desc}"
+
+
+def format_bulk_log_response(
+    logged: list[dict],
+    failed: list[dict],
+    currency_symbol: str,
+) -> str:
+    """Format a summary response for a bulk transaction log."""
+    if not logged:
+        return "❌ Couldn't log any of those transactions. Check the format?"
+
+    total = sum(float(t["amount"]) for t in logged)
+    lines = [
+        f"✅ Logged {len(logged)} transactions — total "
+        f"{currency_symbol}{total:,.2f}",
+        "",
+    ]
+
+    by_cat: dict[str, list[dict]] = {}
+    for t in logged:
+        by_cat.setdefault(t["category"], []).append(t)
+
+    for cat, items in by_cat.items():
+        cat_total = sum(float(i["amount"]) for i in items)
+        emoji = BUDGET_CATEGORY_EMOJIS.get(cat, "📦")
+        lines.append(f"{emoji} {cat.title()}: {currency_symbol}{cat_total:,.2f}")
+        for item in items:
+            desc = item.get("description") or cat.title()
+            lines.append(
+                f"  • {desc}: {currency_symbol}{float(item['amount']):,.2f}"
+            )
+
+    if failed:
+        lines.append("")
+        lines.append(
+            f"⚠️ Couldn't parse {len(failed)} line(s) — try again with amounts."
+        )
+    return "\n".join(lines)
 
 
 def format_budget_warning(

@@ -11,18 +11,45 @@ from core.ai_engine import AIEngine
 from experts.hevn.prompts import HEVN_INTENT_PROMPT
 
 
+ADVICE_MARKERS = (
+    "how much should", "how much do i need", "what's a good",
+    "what is a good", "should i ", "is my ", "is it better",
+    "would you recommend", "do you recommend", "recommend",
+    "what would you", "what do you think",
+)
+
+GOAL_CREATE_MARKERS = (
+    "set a goal", "set this as", "set that as", "let's set",
+    "create a goal", "create goal", "make this my goal",
+    "add a goal", "new goal",
+)
+
+GOAL_VIEW_MARKERS = (
+    "show my goals", "list my goals", "my goals", "show goals",
+    "progress on my goals", "goal progress",
+)
+
+
 async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
     """Classify a message into one of Hevn's skills."""
-    # Short-circuit obvious patterns (no AI cost)
+    # Short-circuit obvious patterns (no AI cost).
     low = message.lower().strip()
+
+    # Advice-style questions ALWAYS win over goal/bill keyword matches — a
+    # user asking "how much should my emergency fund be?" is not trying to
+    # list goals.
+    if any(m in low for m in ADVICE_MARKERS):
+        return "general_chat"
+
     if any(p in low for p in (
         "financial health", "how am i doing", "how's my finances", "my finances",
         "score", "assessment",
     )):
         return "health_assessment"
-    if any(p in low for p in (
-        "goals", "goal", "save for", "saving for", "emergency fund",
-    )):
+    # Goal creation/view — narrow markers only; "goal" alone isn't enough.
+    if any(m in low for m in GOAL_CREATE_MARKERS) or any(
+        m in low for m in GOAL_VIEW_MARKERS
+    ):
         return "goals"
     if any(p in low for p in (
         "bill", "bills", "subscription", "netflix", "spotify", "due",

@@ -84,6 +84,29 @@ Replaces `PlaceholderExpert` with `HevnExpert` (`experts/hevn/expert.py`). Routi
 4. **Persona-driven response** — for `market_trends`, `education`, `general_chat` Hevn replies via the AI with a system prompt enriched by the user's budget summary, goals overview, and current knowledge gap.
 5. **Fire-and-forget extraction** — `hevn_extract_and_save` extracts financial facts into `channel_profile` and mirrors income/debt/savings/retirement/insurance/goals into the shared `user_profile` under category `"finances"`.
 
+### Intent Categories
+
+`experts/hevn/parser.py::classify_hevn_intent` routes to one of these:
+
+| Intent | When it fires | Examples |
+|--------|---------------|----------|
+| `health_assessment` | User wants an overall financial evaluation | "How am I doing financially?", "Score my finances" |
+| `goals` | User wants to **manage goal records** (create / update / list) | "Set a goal to save ₱50k", "Show my goals", "Let's set this as our first goal" |
+| `bills` | Recurring bills / subscriptions / due dates | "Add my Netflix bill", "What's due this week?" |
+| `budget_coaching` | Spending-pattern or waste analysis | "Where am I wasting money?", "Analyze my spending" |
+| `market_trends` | Rates, markets, economic events | "What's the BSP rate?", "USD/PHP today" |
+| `education` | Wants to learn a concept | "Explain MP2", "What is a UITF?" |
+| `general_chat` | Open-ended conversation **OR advice-style questions** — "how much should", "should I", "is my ...", "what's a good" always route here so Hevn answers with personalized advice instead of hitting `goals.list()` | "How much should my emergency fund be?", "Should I invest or pay debt first?" |
+
+The `general_chat` short-circuit for advice markers is what prevents the
+"No active goals yet" regression where advice questions mentioning
+"emergency fund" or "goal" were routed to the goals list.
+
+When the user says "let's set this as our first goal" (no explicit
+amount), `_run_goals` loads the last 6 Hevn messages via
+`get_channel_conversations` and prepends them to the parser input so the
+target amount can be resolved from Hevn's prior suggestion.
+
 ### The 7 Skills
 
 | Skill | File | Highlights |

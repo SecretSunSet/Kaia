@@ -16,8 +16,13 @@ from core.ai_engine import AIEngine
 from database import queries as db
 from database.models import User
 from skills.base import BaseSkill, SkillResult
-from skills.budget.parser import parse_transaction, parse_budget_limit
+from skills.budget.parser import (
+    parse_bulk_transactions,
+    parse_budget_limit,
+    parse_transaction,
+)
 from skills.budget.prompts import (
+    format_bulk_log_response,
     format_transaction_confirmation,
     format_budget_warning,
 )
@@ -59,6 +64,11 @@ class BudgetSkill(BaseSkill):
             return await self._handle_set_limit(user, message)
         if _is_comparison_request(msg):
             return await self._handle_comparison(user)
+
+        # Log intent wins over summary when both signals are present — words like
+        # "expenses" appear in logging phrases ("log into expenses ...") too.
+        if _is_log_request(msg, message):
+            return await self._handle_log_transaction(user, message)
         if _is_summary_request(msg):
             return await self._handle_summary(user, message)
 
@@ -71,6 +81,36 @@ class BudgetSkill(BaseSkill):
         self, user: User, message: str
     ) -> SkillResult:
         currency = user.currency or "PHP"
+        symbol = CURRENCY_SYMBOLS.get(currency, currency)
+
+        if _is_bulk_entry(message):
+            bulk = await parse_bulk_transactions(self.ai, message, currency)
+            if bulk:
+                logged: list[dict] = []
+                failed: list[dict] = []
+                for t in bulk:
+                    try:
+                        await db.create_transaction(
+                            user_id=user.id,
+                            amount=t["amount"],
+                            type=t["type"],
+                            category=t["category"],
+                            description=t.get("description"),
+                            transaction_date=t.get("date"),
+                        )
+                        logged.append(t)
+                    except Exception as exc:
+                        logger.warning("Bulk transaction insert failed: {}", exc)
+                        failed.append(t)
+                logger.info(
+                    "Bulk log: {} ok / {} failed ({})",
+                    len(logged), len(failed), user.telegram_id,
+                )
+                return SkillResult(
+                    text=format_bulk_log_response(logged, failed, symbol),
+                    skill_name=self.name,
+                )
+
         parsed = await parse_transaction(self.ai, message, currency)
 
         if parsed is None:
@@ -78,8 +118,6 @@ class BudgetSkill(BaseSkill):
                 text="I couldn't parse that as a transaction. Try something like 'Spent 500 on lunch' or 'Received 30,000 salary'.",
                 skill_name=self.name,
             )
-
-        symbol = CURRENCY_SYMBOLS.get(currency, currency)
 
         # Save to DB
         txn = await db.create_transaction(
@@ -286,13 +324,40 @@ class BudgetSkill(BaseSkill):
 
 # ── Sub-intent detection helpers ─────────────────────────────────────
 
-def _is_summary_request(msg: str) -> bool:
-    patterns = [
-        "summary", "how much", "spending", "expenses", "show me",
-        "my finances", "budget report", "what did i spend",
-        "what have i spent", "breakdown",
+_LOG_VERBS = (
+    "log ", "log:", "log\n", "add to expense", "add to expenses",
+    "add these to expense", "add these to expenses",
+    "record ", "record:", "paid ", "spent ", "bought ",
+)
+
+_SUMMARY_TRIGGERS = (
+    "summary", "how much", "spending", "expenses", "show me",
+    "my finances", "budget report", "what did i spend",
+    "what have i spent", "breakdown", "how am i doing",
+)
+
+
+def _is_log_request(msg: str, raw: str) -> bool:
+    """Detect an explicit logging intent. Checked before summary so verbose
+    phrases like 'log into expenses ...' aren't routed to the summary handler."""
+    if any(v in msg for v in _LOG_VERBS):
+        return True
+    # "log these expenses:" / "add these to expenses:" headers on bulk entries
+    if _is_bulk_entry(raw):
+        return True
+    return False
+
+
+def _is_bulk_entry(raw: str) -> bool:
+    """Multi-line transaction list — more than one line with a number."""
+    numeric_lines = [
+        ln for ln in raw.split("\n") if any(c.isdigit() for c in ln)
     ]
-    return any(p in msg for p in patterns)
+    return len(numeric_lines) >= 2
+
+
+def _is_summary_request(msg: str) -> bool:
+    return any(p in msg for p in _SUMMARY_TRIGGERS)
 
 
 def _is_comparison_request(msg: str) -> bool:
