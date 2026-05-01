@@ -239,6 +239,37 @@ Rules:
 
 ---
 
+## Expert Channels
+
+Experts live outside the generic skill pipeline — they are full personas with channel-scoped memory, dedicated system prompts, and specialized skill sets. Each implements `BaseExpert` and is registered in `experts/__init__.py` against a `CHANNEL_*` constant.
+
+### MakubeX — Tech Lead / CTO (`experts/makubex/`) — ✅ Implemented (CH-3)
+
+Personality: systems thinker, hacker mindset, methodical, opinionated, progressive depth.
+
+**Intent detection (`parser.py`)** — keyword short-circuits first (project markers, code-review markers, architecture markers, debugging markers, devops markers, security markers, research markers, learning markers). Fenced code blocks auto-route to `code_review`. Falls back to an AI classifier when no keyword hits.
+
+**8 specialized skills:**
+
+| Skill class | File | Highlights |
+|-------------|------|------------|
+| `CodeReviewSkill` | `skills/code_review.py` | Structured JSON review with severity tiers; SHA-256 snippet dedup via `code_reviews`; heuristic language detection. |
+| `ArchitectureSkill` | `skills/architecture.py` | System design, DB schema review, REST API design, A-vs-B approach comparison. |
+| `DebuggingSkill` | `skills/debugging.py` | Error explanation, stack-trace walk, systematic debugging plan, performance diagnosis. |
+| `TechResearchSkill` | `skills/tech_research.py` | Compare tools, recommend a single tool, latest-on-topic, trend evaluation (all web-search augmented). |
+| `DevOpsSkill` | `skills/devops.py` | Infra review, CI/CD design, monitoring setup, containerisation, scaling advice. |
+| `SecuritySkill` | `skills/security.py` | Project audit, auth-flow review, API security, secrets guidance, dependency audit with fresh CVE context. |
+| `LearningCoachSkill` | `skills/learning_coach.py` | `SKILL_TREES` for python/web_dev/devops/databases/security; depth progression (intro → solid → deep); study plans and quizzes. |
+| `ProjectManagerSkill` | `skills/project_manager.py` | CRUD on `tech_projects`, summaries, "suggest next step" for a project. |
+
+**Proactive layer:** `MakubexProactiveSkill.generate_weekly_brief()` runs Mondays 08:00 local (via `core/scheduler.schedule_makubex_weekly_brief`) and compiles active projects, this-week learning, recent code reviews, next-topic suggestion, web-sourced security advisories, and a rotating tip.
+
+**Memory mirror (`extractor.py`):** structural categories (`tech_stack`, `skills`, `projects`, `work_context`, `infrastructure`) propagate to the shared `user_profile` under category `"technical"`; everything else stays channel-scoped.
+
+**Slash shortcuts (`bot/makubex_commands.py`):** `/makubex_review`, `/makubex_projects`, `/makubex_learn`, `/makubex_security`, `/makubex_brief`.
+
+---
+
 ## Voice Pipeline (Utility Layer)
 
 Voice is not a skill — it's a transport layer that feeds into the skill pipeline.
@@ -270,6 +301,11 @@ Voice is not a skill — it's a transport layer that feeds into the skill pipeli
 | `/briefing` | `cmd_briefing` | On-demand daily briefing |
 | `/export` | `cmd_export` | Export all user data as JSON file |
 | `/reset` | `cmd_reset` | Delete all data (requires CONFIRM DELETE) |
+| `/makubex_review` | `cmd_makubex_review` | Run MakubeX code review on a pasted snippet |
+| `/makubex_projects` | `cmd_makubex_projects` | List tracked tech projects |
+| `/makubex_learn` | `cmd_makubex_learn` | Suggest the next topic to study |
+| `/makubex_security` | `cmd_makubex_security` | Security audit a tracked project |
+| `/makubex_brief` | `cmd_makubex_brief` | Weekly tech brief on demand |
 
 ---
 

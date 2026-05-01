@@ -34,10 +34,12 @@ def _register_defaults() -> None:
         CHANNEL_MAKUBEX,
     )
     from experts.hevn import HevnExpert
+    from experts.makubex import MakubeXExpert
     from experts.placeholder import PlaceholderExpert
 
     register_expert(CHANNEL_HEVN, HevnExpert)
-    for channel_id in (CHANNEL_KAZUKI, CHANNEL_AKABANE, CHANNEL_MAKUBEX):
+    register_expert(CHANNEL_MAKUBEX, MakubeXExpert)
+    for channel_id in (CHANNEL_KAZUKI, CHANNEL_AKABANE):
         register_expert(channel_id, PlaceholderExpert)
 
 

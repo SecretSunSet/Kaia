@@ -230,6 +230,39 @@ On push to `main`:
 3. `pip install -r requirements.txt` inside the venv.
 4. `sudo systemctl restart kaia` — systemd restarts the bot, keeping it alive.
 
+## Data Flow — MakubeX (Tech Lead) Turn
+
+```
+1. Message arrives in /makubex channel (DM) or MakubeX forum topic
+2. MakubeXExpert.handle(user, message, channel)
+3. First visit? → generate_onboarding() + schedule_makubex_weekly_brief()
+                  (CronTrigger: Mon 08:00 user timezone)
+4. Otherwise classify_makubex_intent() runs keyword short-circuits over 8
+   intents (code_review / architecture / debugging / devops / security /
+   tech_research / learning_coach / project_manager) with fenced code
+   blocks auto-routing to code_review. Falls back to an AI classifier.
+5. Specialized _run_* handler dispatches:
+   - code_review → extract_code_block() → CodeReviewSkill.review_code()
+     → SHA-256 hash lookup in code_reviews for dedup → format_review()
+   - project_manager → parse_project_creation() OR format_projects_list()
+   - architecture / devops / security / research / learning → matching
+     skill method, seeded with a tech context block built from active
+     tech_projects + tech_skills
+6. If no deterministic route → _persona_response() builds the full
+   MakubeX system prompt (active projects / skills / recent learning /
+   shared profile / channel profile / top knowledge gap) and streams
+   AI chat.
+7. save_messages() persists the turn to channel_conversations.
+8. _fire_extraction() spawns makubex_extract_and_save() which runs the
+   generic channel extractor, then mirrors selected categories
+   (tech_stack / skills / projects / work_context / infrastructure) into
+   user_profile under the "technical" category.
+9. Weekly brief cron fires Monday 08:00 → MakubeX proactive skill
+   assembles active projects + this-week learning + recent reviews +
+   next topic + web-sourced security advisories → delivered to the
+   MakubeX topic when mapped, otherwise DM with /makubex footer.
+```
+
 ## Design Decisions
 
 1. **Modular monolith over microservices** — Single process simplifies deployment and debugging. Skills are isolated modules that could be split out later if needed.

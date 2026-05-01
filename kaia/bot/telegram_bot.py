@@ -46,6 +46,13 @@ from bot.hevn_commands import (
     cmd_hevn_goals,
     cmd_hevn_health,
 )
+from bot.makubex_commands import (
+    cmd_makubex_brief,
+    cmd_makubex_learn,
+    cmd_makubex_projects,
+    cmd_makubex_review,
+    cmd_makubex_security,
+)
 from bot.middleware import check_rate_limit, track_ai_usage
 from experts import get_expert
 from experts.placeholder import PlaceholderExpert
@@ -162,6 +169,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/hevn_goals — Show all goals\n"
         "/hevn_bills — Upcoming bills\n"
         "/hevn_digest — Weekly digest on demand\n\n"
+        "🔧 *MakubeX shortcuts:*\n"
+        "/makubex_review — Review a code snippet\n"
+        "/makubex_projects — List tracked tech projects\n"
+        "/makubex_learn — Suggest what to learn next\n"
+        "/makubex_security — Security audit a tracked project\n"
+        "/makubex_brief — Weekly tech brief on demand\n\n"
         "⚙️ *Commands:*\n"
         "/start — Welcome message\n"
         "/help — This help text\n"
@@ -854,6 +867,13 @@ def main() -> None:
     app.add_handler(CommandHandler("hevn_goals", cmd_hevn_goals))
     app.add_handler(CommandHandler("hevn_bills", cmd_hevn_bills))
     app.add_handler(CommandHandler("hevn_digest", cmd_hevn_digest))
+
+    # MakubeX shortcut commands
+    app.add_handler(CommandHandler("makubex_review", cmd_makubex_review))
+    app.add_handler(CommandHandler("makubex_projects", cmd_makubex_projects))
+    app.add_handler(CommandHandler("makubex_learn", cmd_makubex_learn))
+    app.add_handler(CommandHandler("makubex_security", cmd_makubex_security))
+    app.add_handler(CommandHandler("makubex_brief", cmd_makubex_brief))
 
     # Text messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

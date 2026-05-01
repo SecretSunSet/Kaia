@@ -445,3 +445,72 @@ async def _fire_hevn_digest(user_id: str, telegram_id: int, bot: Bot) -> None:
         await bot.send_message(chat_id=telegram_id, text=text, **kwargs)
     except Exception as exc:
         logger.error("Failed to send Hevn digest to {}: {}", telegram_id, exc)
+
+
+# ── MakubeX Weekly Tech Brief ──────────────────────────────────────
+
+async def schedule_makubex_weekly_brief(
+    user_id: str,
+    telegram_id: int,
+    timezone: str = "Asia/Manila",
+    bot: Bot | None = None,
+) -> None:
+    """Schedule MakubeX's weekly tech brief every Monday at 8 AM user's timezone."""
+    scheduler = get_scheduler()
+    job_id = f"makubex_brief_{user_id}"
+
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+
+    the_bot = bot or _bot_ref
+    if the_bot is None:
+        logger.warning("Cannot schedule MakubeX brief — no bot reference available")
+        return
+
+    trigger = CronTrigger(
+        day_of_week="mon", hour=8, minute=0, timezone=ZoneInfo(timezone)
+    )
+    scheduler.add_job(
+        _fire_makubex_brief,
+        trigger=trigger,
+        id=job_id,
+        args=[user_id, telegram_id, the_bot],
+        replace_existing=True,
+    )
+    logger.info("MakubeX weekly brief scheduled for user {} (Mon 8:00 {})", user_id, timezone)
+
+
+async def cancel_makubex_weekly_brief(user_id: str) -> None:
+    """Cancel MakubeX's weekly brief for a user."""
+    scheduler = get_scheduler()
+    job_id = f"makubex_brief_{user_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+        logger.info("MakubeX weekly brief cancelled for user {}", user_id)
+
+
+async def _fire_makubex_brief(user_id: str, telegram_id: int, bot: Bot) -> None:
+    """Generate and send MakubeX's weekly tech brief."""
+    logger.info("Firing MakubeX brief for user {} (tg={})", user_id, telegram_id)
+    try:
+        from core.ai_engine import AIEngine
+        from core.forum_manager import ForumManager
+        from experts.makubex.skills.proactive import MakubexProactiveSkill
+
+        user = await get_or_create_user(telegram_id)
+        ai_engine = AIEngine()
+        skill = MakubexProactiveSkill(ai_engine)
+        text = await skill.generate_weekly_brief(user.id)
+
+        forum_mgr = ForumManager()
+        topic_id = await forum_mgr.get_topic_for_channel(telegram_id, "makubex")
+
+        kwargs: dict = {"parse_mode": "Markdown"}
+        if topic_id is not None:
+            kwargs["message_thread_id"] = topic_id
+        else:
+            text = f"{text}\n\n_/makubex to dig into any of this._"
+
+        await bot.send_message(chat_id=telegram_id, text=text, **kwargs)
+    except Exception as exc:
+        logger.error("Failed to send MakubeX brief to {}: {}", telegram_id, exc)
