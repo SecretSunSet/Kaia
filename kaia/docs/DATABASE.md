@@ -1,7 +1,12 @@
 # KAIA Database Schema
 
 **Engine:** PostgreSQL via Supabase
-**Migration file:** `database/migrations/001_initial.sql`
+**Migration files:**
+- `database/migrations/001_initial.sql` — users, user_profile, memory_log, reminders, transactions, conversations, budget_limits
+- `database/migrations/002_channels.sql` — channels, active_channel, channel_conversations, channel_profile
+- `database/migrations/003_hevn.sql` — financial_goals, bills, debts, insurance_policies, retirement_accounts
+- `database/migrations/004_forum.sql` — forum topic ↔ channel mappings
+- `database/migrations/005_makubex.sql` — tech_projects, tech_skills, learning_log, code_reviews
 
 ---
 
@@ -42,7 +47,7 @@ Evolving AI-generated user profile. Core of the memory system.
 
 **Constraints:** `UNIQUE(user_id, category, key)` — upserts update existing facts.
 
-**Category values:** `identity`, `health`, `finances`, `personality`, `preferences`, `goals`, `patterns`
+**Category values:** `identity`, `health`, `finances`, `technical`, `personality`, `preferences`, `goals`, `patterns`
 
 ---
 
@@ -132,6 +137,80 @@ Per-category monthly spending limits.
 
 ---
 
+---
+
+### `tech_projects`
+
+MakubeX-tracked tech projects (Phase CH-3).
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `id` | UUID | NO | `gen_random_uuid()` | Primary key |
+| `user_id` | UUID | NO | — | FK → `users(id)` ON DELETE CASCADE |
+| `name` | VARCHAR(120) | NO | — | Project name |
+| `description` | TEXT | YES | — | Short description |
+| `tech_stack` | JSONB | YES | `'[]'` | Array of stack items (strings) |
+| `status` | VARCHAR(20) | YES | `'active'` | `active` / `paused` / `completed` / `archived` |
+| `repo_url` | TEXT | YES | — | Source control URL |
+| `notes` | TEXT | YES | — | Free-form notes |
+| `priority` | INT | YES | `2` | 1 (high) / 2 / 3 (low) |
+| `started_at` | DATE | YES | — | Start date |
+| `created_at` | TIMESTAMPTZ | YES | `NOW()` | Record creation |
+| `updated_at` | TIMESTAMPTZ | YES | `NOW()` | Last update |
+
+---
+
+### `tech_skills`
+
+Per-technology skill tracking for MakubeX (Phase CH-3).
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `id` | UUID | NO | `gen_random_uuid()` | Primary key |
+| `user_id` | UUID | NO | — | FK → `users(id)` ON DELETE CASCADE |
+| `skill` | VARCHAR(80) | NO | — | Normalised skill name |
+| `level` | INT | NO | `1` | 1 (beginner) – 5 (expert) |
+| `last_used` | DATE | YES | — | Most recent usage |
+| `created_at` | TIMESTAMPTZ | YES | `NOW()` | Record creation |
+| `updated_at` | TIMESTAMPTZ | YES | `NOW()` | Last update |
+
+**Constraints:** `UNIQUE(user_id, skill)` — upserts update existing rows.
+
+---
+
+### `learning_log`
+
+Append-only log of topics MakubeX has walked the user through (Phase CH-3).
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `id` | UUID | NO | `gen_random_uuid()` | Primary key |
+| `user_id` | UUID | NO | — | FK → `users(id)` ON DELETE CASCADE |
+| `topic` | VARCHAR(120) | NO | — | Snake-cased topic |
+| `category` | VARCHAR(60) | YES | `'concept'` | e.g. `concept`, `tool`, `pattern` |
+| `depth` | VARCHAR(20) | YES | `'intro'` | `intro` / `solid` / `deep` |
+| `taught_at` | TIMESTAMPTZ | YES | `NOW()` | When the session happened |
+
+---
+
+### `code_reviews`
+
+Cached structured code reviews for MakubeX (Phase CH-3).
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| `id` | UUID | NO | `gen_random_uuid()` | Primary key |
+| `user_id` | UUID | NO | — | FK → `users(id)` ON DELETE CASCADE |
+| `snippet_hash` | VARCHAR(64) | NO | — | SHA-256 of normalised snippet |
+| `language` | VARCHAR(40) | YES | — | Detected or hinted language |
+| `summary` | TEXT | YES | — | One-liner summary |
+| `issues_found` | JSONB | YES | `'[]'` | Structured issue records |
+| `created_at` | TIMESTAMPTZ | YES | `NOW()` | When review ran |
+
+**Constraints:** `UNIQUE(user_id, snippet_hash)` — repeat reviews hit the cache instead of the model.
+
+---
+
 ## Indexes
 
 | Index | Table | Columns | Condition |
@@ -145,10 +224,16 @@ Per-category monthly spending limits.
 | `idx_transactions_date` | `transactions` | `user_id, transaction_date` | — |
 | `idx_conversations_user` | `conversations` | `user_id` | — |
 | `idx_conversations_created` | `conversations` | `user_id, created_at` | — |
+| `idx_tech_projects_user` | `tech_projects` | `user_id, status` | — |
+| `idx_tech_skills_user` | `tech_skills` | `user_id` | — |
+| `idx_learning_log_user` | `learning_log` | `user_id, taught_at DESC` | — |
+| `idx_learning_log_topic` | `learning_log` | `user_id, topic` | — |
+| `idx_code_reviews_user` | `code_reviews` | `user_id, created_at DESC` | — |
+| `idx_code_reviews_hash` | `code_reviews` | `user_id, snippet_hash` | — |
 
 ## Row-Level Security
 
-RLS is enabled on all 7 tables. A `service_role_all` policy grants full access since the bot connects with a service-role key.
+RLS is enabled on every table, including the four MakubeX tables. A `service_role_all` policy grants full access since the bot connects with a service-role key.
 
 ## Entity Relationships
 
@@ -159,6 +244,10 @@ users (1) ──── (N) reminders
 users (1) ──── (N) transactions
 users (1) ──── (N) conversations
 users (1) ──── (N) budget_limits
+users (1) ──── (N) tech_projects
+users (1) ──── (N) tech_skills
+users (1) ──── (N) learning_log
+users (1) ──── (N) code_reviews
 ```
 
 All foreign keys use `ON DELETE CASCADE` — deleting a user removes all their data.

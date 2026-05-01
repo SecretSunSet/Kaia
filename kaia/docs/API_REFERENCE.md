@@ -959,3 +959,148 @@ Formats a datetime for display in the user's timezone.
 ### `truncate(text: str, max_length: int = 4096) -> str`
 
 Truncates text to fit Telegram's message limit, appending `...` if truncated.
+
+---
+
+## experts/makubex — Tech Lead / CTO
+
+### `database/models.py — MakubeX dataclasses`
+
+- `@dataclass TechProject` — `id, user_id, name, description, tech_stack: list[str], status, repo_url, notes, priority, started_at, created_at, updated_at`. `tech_stack` is stored as JSONB.
+- `@dataclass TechSkill` — `id, user_id, skill, level: int (1–5), last_used, created_at, updated_at`. UNIQUE per (user_id, skill).
+- `@dataclass LearningLogEntry` — `id, user_id, topic, category, depth ("intro"|"solid"|"deep"), taught_at`.
+- `@dataclass CodeReview` — `id, user_id, snippet_hash, language, summary, issues_found: list[dict], created_at`.
+
+### `database/queries.py — MakubeX queries`
+
+- `async create_tech_project(user_id, name, description=None, tech_stack=None, repo_url=None, priority=2, started_at=None) -> TechProject`
+- `async get_tech_projects(user_id, status: str | None = "active") -> list[TechProject]`
+- `async get_tech_project_by_id(project_id) -> TechProject | None`
+- `async get_tech_project_by_name(user_id, name) -> TechProject | None`
+- `async update_tech_project(project_id, **fields) -> None`
+- `async delete_tech_project(project_id) -> None`
+- `async upsert_tech_skill(user_id, skill, level, last_used=None) -> TechSkill`
+- `async get_tech_skills(user_id) -> list[TechSkill]`
+- `async get_tech_skill(user_id, skill) -> TechSkill | None`
+- `async add_learning_log(user_id, topic, category, depth) -> LearningLogEntry`
+- `async get_learning_log(user_id, limit=20) -> list[LearningLogEntry]`
+- `async get_learning_log_for_topic(user_id, topic) -> list[LearningLogEntry]`
+- `async save_code_review(user_id, snippet_hash, language, summary, issues_found: list[dict]) -> CodeReview`
+- `async get_code_review_by_hash(user_id, snippet_hash) -> CodeReview | None`
+- `async get_recent_code_reviews(user_id, limit=5) -> list[CodeReview]`
+
+### `experts/makubex/prompts.py`
+
+- `MAKUBEX_SYSTEM_PROMPT` — Full persona + context template with placeholders `{active_projects}`, `{tech_skills}`, `{recent_learning}`, `{shared_profile}`, `{makubex_profile}`, `{current_gap}`.
+- `ONBOARDING_PROMPT` — First-visit intro generator.
+- `EXTRACTION_PROMPT` — Domain-focused extraction with categories `tech_stack, skills, projects, learning_path, coding_style, work_context, tools, pain_points, infrastructure, goals`.
+- `MAKUBEX_INTENT_PROMPT` — Classifier covering the 8 skills plus `general_chat`.
+- `build_makubex_system_prompt(active_projects, tech_skills, recent_learning, shared_profile, makubex_profile, current_gap) -> str`
+
+### `experts/makubex/parser.py`
+
+- `async classify_makubex_intent(ai, message) -> str` — Keyword short-circuits (PROJECT / CODE_REVIEW / ARCHITECTURE / DEBUGGING / DEVOPS / SECURITY / RESEARCH / LEARNING markers) plus fenced-code-block auto-route to `code_review`. Falls back to an AI classifier.
+- `async parse_project_creation(ai, message) -> dict | None` — Returns `{name, description, tech_stack, repo_url, priority}` or None.
+- `extract_code_block(message) -> tuple[str | None, str | None]` — First fenced block and its language hint.
+
+### `experts/makubex/extractor.py`
+
+- `async makubex_extract_and_save(ai_engine, user_id, conversation_messages) -> int` — Delegates to the generic `channel_extract_and_save` for channel-scoped facts, then mirrors entries whose category is in `{tech_stack, skills, projects, work_context, infrastructure}` into `user_profile` under category `"technical"`.
+
+### `experts/makubex/expert.py`
+
+- `class MakubeXExpert(BaseExpert)` — `channel_id = "makubex"`.
+  - `__init__(ai_engine)` — Instantiates CodeReview / Architecture / Debugging / TechResearch / DevOps / Security / LearningCoach / ProjectManager / Proactive skills.
+  - `async handle(user, message, channel) -> SkillResult` — First-visit onboarding registers the Monday brief; subsequent turns run intent classification and dispatch to a specialized `_run_*` handler, falling back to `_persona_response` for `general_chat`.
+  - `_run_code_review`, `_run_project_manager`, `_run_architecture`, `_run_debugging`, `_run_devops`, `_run_security`, `_run_research`, `_run_learning` — Intent-specific dispatchers that pass in tech context blocks.
+  - `_persona_response(user, message, channel, intent)` — Builds the full system prompt with active projects, skills, recent learning, shared profile, channel profile, and the top knowledge gap.
+  - `_fire_extraction(user_id, channel_id, user_msg, assistant_msg)` — Fire-and-forget call to `makubex_extract_and_save`.
+
+### `experts/makubex/skills/code_review.py`
+
+- `class CodeReviewSkill(ai_engine)`
+  - `async review_code(user_id, code, language=None) -> dict` — SHA-256 snippet dedup via `code_reviews`. Returns `{language, summary, issues, improvements, strengths, from_cache}`.
+  - `detect_language(code) -> str | None` — Regex heuristics for python/js/ts/go/rust/java/sql/bash/html/yaml.
+  - `format_review(review) -> str` — Markdown with severity-sorted issues.
+
+### `experts/makubex/skills/architecture.py`
+
+- `class ArchitectureSkill(ai_engine)`
+  - `async design_system(user_id, requirements, context_block="") -> str`
+  - `async review_schema(user_id, schema, context_block="") -> str`
+  - `async design_api(user_id, resource, operations=None, context_block="") -> str`
+  - `async compare_approaches(user_id, option_a, option_b, context="") -> str`
+
+### `experts/makubex/skills/debugging.py`
+
+- `class DebuggingSkill(ai_engine)`
+  - `async debug_error(user_id, error_message, code_context=None, stack_context="") -> str`
+  - `async explain_stack_trace(user_id, trace, stack_context="") -> str`
+  - `async suggest_debugging_steps(user_id, problem, stack_context="") -> str`
+  - `async diagnose_performance(user_id, symptoms, stack_context="") -> str`
+
+### `experts/makubex/skills/tech_research.py`
+
+- `class TechResearchSkill(ai_engine)`
+  - `async compare_tools(user_id, tools: list[str], use_case, context_block="") -> str`
+  - `async recommend_tool(user_id, need, context_block="") -> str`
+  - `async latest_on_topic(user_id, topic, context_block="") -> str`
+  - `async evaluate_trend(user_id, trend, context_block="") -> str`
+  - All four pull fresh web context via `skills.web_browse.search.web_search` and degrade silently if unavailable.
+
+### `experts/makubex/skills/devops.py`
+
+- `class DevOpsSkill(ai_engine)`
+  - `async review_infrastructure(user_id, infra_summary, context_block="") -> str`
+  - `async design_cicd(user_id, project, context_block="") -> str`
+  - `async monitoring_setup(user_id, stack, context_block="") -> str`
+  - `async containerization_advice(user_id, app, context_block="") -> str`
+  - `async scaling_advice(user_id, current, growth, context_block="") -> str`
+
+### `experts/makubex/skills/security.py`
+
+- `class SecuritySkill(ai_engine)`
+  - `async audit_project(user_id, project_name, context_block="") -> str`
+  - `async review_auth_flow(user_id, description, context_block="") -> str`
+  - `async check_api_security(user_id, api_description, context_block="") -> str`
+  - `async secrets_best_practices(user_id, context_block="") -> str`
+  - `async dependency_audit(user_id, requirements, context_block="") -> str` — Augments the prompt with recent CVE advisories from `web_search`.
+
+### `experts/makubex/skills/learning_coach.py`
+
+- `class LearningCoachSkill(ai_engine)`
+  - `SKILL_TREES: dict[domain, dict[level, list[topic]]]` covering python / web_dev / devops / databases / security.
+  - `async assess_level(user_id, topic) -> dict` — Uses `tech_skills` then falls back to `learning_log` history.
+  - `async explain_concept(user_id, concept, context_block="") -> str` — Auto-advances along the intro → solid → deep depth progression and writes a `learning_log` entry.
+  - `async suggest_next_topic(user_id, domain=None) -> dict` — Prefers topics that would unblock an active project.
+  - `async create_study_plan(user_id, goal, weeks, context_block="") -> str`
+  - `async quiz(user_id, topic, context_block="") -> str`
+
+### `experts/makubex/skills/project_manager.py`
+
+- `class ProjectManagerSkill(ai_engine)`
+  - `async create_project(user_id, name, description=None, tech_stack=None, repo_url=None, priority=2) -> TechProject` — Idempotent by name.
+  - `async list_projects(user_id, status="active") -> list[TechProject]`
+  - `async update_project(user_id, project_id, updates: dict) -> TechProject | None`
+  - `async project_summary(user_id, project_id) -> str`
+  - `async suggest_next_step(user_id, project_id, context_block="") -> str`
+  - `format_projects_list(projects) -> str`
+
+### `experts/makubex/skills/proactive.py`
+
+- `class MakubexProactiveSkill(ai_engine)`
+  - `async generate_weekly_brief(user_id) -> str` — Active projects, learning this week, recent code reviews, suggested next topic, web-sourced security advisories, rotating weekly tip.
+
+### `bot/makubex_commands.py`
+
+- `async cmd_makubex_review(update, context) -> None` — `/makubex_review <code or fenced block>` runs `CodeReviewSkill`.
+- `async cmd_makubex_projects(update, context) -> None` — `/makubex_projects` lists active tracked projects.
+- `async cmd_makubex_learn(update, context) -> None` — `/makubex_learn` returns the next topic suggestion.
+- `async cmd_makubex_security(update, context) -> None` — `/makubex_security [project_name]` audits a tracked project.
+- `async cmd_makubex_brief(update, context) -> None` — `/makubex_brief` regenerates the weekly tech brief on demand.
+
+### `core/scheduler.py — MakubeX Functions`
+
+- `async schedule_makubex_weekly_brief(user_id, telegram_id, timezone="Asia/Manila", bot=None) -> None` — CronTrigger for Mondays 08:00 local.
+- `async cancel_makubex_weekly_brief(user_id) -> None`
+- `async _fire_makubex_brief(user_id, telegram_id, bot) -> None` — Forum-topic-aware delivery.

@@ -50,6 +50,7 @@ PROFILE_CATEGORIES = [
     "identity",
     "health",
     "finances",
+    "technical",
     "personality",
     "preferences",
     "goals",

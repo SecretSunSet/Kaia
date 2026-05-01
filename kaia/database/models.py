@@ -168,3 +168,54 @@ class RecurringBill:
     last_paid: date | None = None
     notes: str | None = None
     created_at: datetime | None = None
+
+
+# ── MakubeX (Phase CH-3) ────────────────────────────────────────────
+
+@dataclass
+class TechProject:
+    user_id: str
+    name: str
+    id: str = ""
+    description: str | None = None
+    tech_stack: list[str] = field(default_factory=list)
+    status: str = "active"  # active, paused, completed, archived
+    repo_url: str | None = None
+    notes: str | None = None
+    priority: int = 1
+    started_at: date | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class TechSkill:
+    user_id: str
+    skill: str
+    id: str = ""
+    level: str = "beginner"  # beginner, intermediate, advanced, expert
+    last_used: date | None = None
+    notes: str | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class LearningLogEntry:
+    user_id: str
+    topic: str
+    id: str = ""
+    category: str | None = None  # concept, tool, pattern, language
+    depth: str = "intro"  # intro, solid, deep
+    taught_at: datetime | None = None
+    notes: str | None = None
+
+
+@dataclass
+class CodeReview:
+    user_id: str
+    id: str = ""
+    snippet_hash: str | None = None
+    language: str | None = None
+    summary: str | None = None
+    issues_found: list[dict] = field(default_factory=list)
+    created_at: datetime | None = None

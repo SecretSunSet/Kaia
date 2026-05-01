@@ -5,6 +5,46 @@ Format: timestamped entries per phase, grouped by Added/Changed/Fixed/Notes.
 
 ---
 
+## [2026-04-21] Phase CH-3 — MakubeX Tech Lead
+
+### Added
+
+- `database/migrations/005_makubex.sql` — 4 new tables with indexes and RLS policies: `tech_projects` (JSONB `tech_stack`, priority, status lifecycle), `tech_skills` (UNIQUE per user+skill, level 1–5), `learning_log` (append-only topic/depth entries), `code_reviews` (`snippet_hash` for dedup, JSONB `issues_found`).
+- `database/models.py` — Dataclasses `TechProject`, `TechSkill`, `LearningLogEntry`, `CodeReview`.
+- `database/queries.py` — CRUD for all 4 MakubeX tables: `create/get/update/delete_tech_project`, `get_tech_project_by_name`, `upsert_tech_skill`, `get_tech_skill(s)`, `add_learning_log`, `get_learning_log`, `get_learning_log_for_topic`, `save_code_review`, `get_code_review_by_hash`, `get_recent_code_reviews`.
+- `experts/makubex/` — New expert package:
+  - `expert.py` — `MakubeXExpert(BaseExpert)` with `channel_id="makubex"`. First-visit onboarding schedules the Monday-morning tech brief, then intent routing dispatches to 8 specialized skills; fallback is a persona-driven AI reply with full tech context.
+  - `prompts.py` — `MAKUBEX_SYSTEM_PROMPT` (systems thinker / hacker mindset / methodical / progressive depth), `ONBOARDING_PROMPT`, `EXTRACTION_PROMPT`, `MAKUBEX_INTENT_PROMPT`, `build_makubex_system_prompt()`.
+  - `parser.py` — `classify_makubex_intent()` with keyword short-circuits + AI fallback across 9 intents; fenced code blocks auto-route to `code_review`. Also `parse_project_creation()` and `extract_code_block()`.
+  - `extractor.py` — `makubex_extract_and_save()` runs the generic channel extractor, then mirrors high-signal categories (`tech_stack`, `skills`, `projects`, `work_context`, `infrastructure`) to the shared `user_profile` under `technical`.
+  - `skills/code_review.py` — `CodeReviewSkill` with SHA-256 snippet dedup via `code_reviews`, heuristic language detection (python/js/ts/go/rust/java/sql/bash/html/yaml), severity-sorted formatter.
+  - `skills/architecture.py` — `ArchitectureSkill`: `design_system`, `review_schema`, `design_api`, `compare_approaches`.
+  - `skills/debugging.py` — `DebuggingSkill`: `debug_error`, `explain_stack_trace`, `suggest_debugging_steps`, `diagnose_performance`.
+  - `skills/tech_research.py` — `TechResearchSkill`: `compare_tools`, `recommend_tool`, `latest_on_topic`, `evaluate_trend`. Pulls fresh context via `skills.web_browse.search.web_search`.
+  - `skills/devops.py` — `DevOpsSkill`: `review_infrastructure`, `design_cicd`, `monitoring_setup`, `containerization_advice`, `scaling_advice`.
+  - `skills/security.py` — `SecuritySkill`: `audit_project`, `review_auth_flow`, `check_api_security`, `secrets_best_practices`, `dependency_audit` (web-search-augmented).
+  - `skills/learning_coach.py` — `LearningCoachSkill` with `SKILL_TREES` for python/web_dev/devops/databases/security, depth progression (intro → solid → deep), `assess_level`, `explain_concept`, `suggest_next_topic`, `create_study_plan`, `quiz`.
+  - `skills/project_manager.py` — `ProjectManagerSkill`: idempotent-by-name `create_project`, `list_projects`, `update_project`, `project_summary`, `suggest_next_step`.
+  - `skills/proactive.py` — `MakubexProactiveSkill.generate_weekly_brief()` assembles active projects, this-week learning, recent code reviews, next-topic suggestion, web-sourced security advisories, and a rotating weekly tip.
+- `bot/makubex_commands.py` — Slash-command shortcuts: `/makubex_review`, `/makubex_projects`, `/makubex_learn`, `/makubex_security`, `/makubex_brief`. Forum-topic-aware replies.
+- `core/scheduler.py` — `schedule_makubex_weekly_brief()`, `cancel_makubex_weekly_brief()`, `_fire_makubex_brief()` (Monday 08:00 user timezone). Forum-mode delivery routes to MakubeX's topic when mapped.
+
+### Changed
+
+- `config/constants.py` — Added `"technical"` to `PROFILE_CATEGORIES` so MakubeX can mirror technical facts to the shared user profile.
+- `experts/__init__.py` — Registered `MakubeXExpert` for `CHANNEL_MAKUBEX`; placeholder now only backs Kazuki and Akabane.
+- `bot/commands.py` — `/reset` now also purges `tech_projects`, `tech_skills`, `learning_log`, `code_reviews`.
+- `bot/telegram_bot.py` — Registered the 5 `/makubex_*` commands and added a MakubeX shortcuts block to `/help`.
+
+### Notes
+
+- Personality: MakubeX is a systems thinker with a hacker mindset — methodical, opinionated, never gatekeeping knowledge, explains at the user's current level.
+- Memory mirror is selective: only structural technical facts (stack/skills/projects/work context/infrastructure) propagate to the shared profile; the rest stays channel-scoped.
+- Code reviews dedupe on a SHA-256 of the normalized snippet so repeat pastes don't burn tokens.
+- Weekly brief fires Mondays at 08:00 in the user's timezone (contrast with Hevn's Sunday 09:00 digest). Registration happens on first visit to `/makubex`, mirroring Hevn's digest.
+
+---
+
 ## [2026-04-15] Deployment — AWS EC2
 
 ### Added

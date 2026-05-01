@@ -22,6 +22,10 @@ from database.models import (
     ForumTopicMapping,
     FinancialGoal,
     RecurringBill,
+    TechProject,
+    TechSkill,
+    LearningLogEntry,
+    CodeReview,
 )
 
 
@@ -964,3 +968,332 @@ async def get_recurring_bill_by_id(bill_id: str) -> RecurringBill | None:
     if not result.data:
         return None
     return _row_to_recurring_bill(result.data[0])
+
+
+# ── Tech projects (MakubeX — Phase CH-3) ───────────────────────────
+
+def _row_to_tech_project(row: dict) -> TechProject:
+    """Convert a Supabase row dict to a TechProject dataclass."""
+    started_val = row.get("started_at")
+    stack = row.get("tech_stack") or []
+    if isinstance(stack, str):
+        import json as _json
+        try:
+            stack = _json.loads(stack)
+        except Exception:
+            stack = []
+    return TechProject(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        description=row.get("description"),
+        tech_stack=stack,
+        status=row.get("status", "active"),
+        repo_url=row.get("repo_url"),
+        notes=row.get("notes"),
+        priority=row.get("priority", 1),
+        started_at=date.fromisoformat(started_val) if started_val else None,
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
+
+
+async def create_tech_project(
+    user_id: str,
+    name: str,
+    description: str | None = None,
+    tech_stack: list[str] | None = None,
+    repo_url: str | None = None,
+    notes: str | None = None,
+    priority: int = 1,
+    started_at: str | None = None,
+) -> TechProject:
+    """Insert a new tech project and return it."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "name": name,
+        "priority": priority,
+    }
+    if description:
+        data["description"] = description
+    if tech_stack:
+        data["tech_stack"] = tech_stack
+    if repo_url:
+        data["repo_url"] = repo_url
+    if notes:
+        data["notes"] = notes
+    if started_at:
+        data["started_at"] = started_at
+    result = sb.table("tech_projects").insert(data).execute()
+    return _row_to_tech_project(result.data[0])
+
+
+async def get_tech_projects(
+    user_id: str, status: str | None = "active"
+) -> list[TechProject]:
+    """Return tech projects for a user (optionally filtered by status)."""
+    sb = get_supabase()
+    query = sb.table("tech_projects").select("*").eq("user_id", user_id)
+    if status:
+        query = query.eq("status", status)
+    result = query.order("priority").execute()
+    return [_row_to_tech_project(r) for r in result.data]
+
+
+async def get_tech_project_by_id(project_id: str) -> TechProject | None:
+    """Fetch a single tech project by ID."""
+    sb = get_supabase()
+    result = sb.table("tech_projects").select("*").eq("id", project_id).execute()
+    if not result.data:
+        return None
+    return _row_to_tech_project(result.data[0])
+
+
+async def get_tech_project_by_name(
+    user_id: str, name: str
+) -> TechProject | None:
+    """Fetch a tech project by (user_id, name), case-insensitive."""
+    sb = get_supabase()
+    result = (
+        sb.table("tech_projects")
+        .select("*")
+        .eq("user_id", user_id)
+        .ilike("name", name)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_tech_project(result.data[0])
+
+
+async def update_tech_project(project_id: str, **fields: object) -> None:
+    """Update arbitrary fields on a tech project."""
+    if not fields:
+        return
+    sb = get_supabase()
+    payload = dict(fields)
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    sb.table("tech_projects").update(payload).eq("id", project_id).execute()
+
+
+async def delete_tech_project(project_id: str) -> None:
+    """Delete a tech project by ID."""
+    sb = get_supabase()
+    sb.table("tech_projects").delete().eq("id", project_id).execute()
+
+
+# ── Tech skills (MakubeX — Phase CH-3) ─────────────────────────────
+
+def _row_to_tech_skill(row: dict) -> TechSkill:
+    """Convert a Supabase row dict to a TechSkill dataclass."""
+    last_used_val = row.get("last_used")
+    return TechSkill(
+        id=row["id"],
+        user_id=row["user_id"],
+        skill=row["skill"],
+        level=row.get("level", "beginner"),
+        last_used=date.fromisoformat(last_used_val) if last_used_val else None,
+        notes=row.get("notes"),
+        updated_at=row.get("updated_at"),
+    )
+
+
+async def upsert_tech_skill(
+    user_id: str,
+    skill: str,
+    level: str = "beginner",
+    last_used: str | None = None,
+    notes: str | None = None,
+) -> TechSkill:
+    """Insert or update a user's skill level."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "skill": skill,
+        "level": level,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    if last_used:
+        data["last_used"] = last_used
+    if notes:
+        data["notes"] = notes
+    result = sb.table("tech_skills").upsert(
+        data, on_conflict="user_id,skill"
+    ).execute()
+    return _row_to_tech_skill(result.data[0])
+
+
+async def get_tech_skills(user_id: str) -> list[TechSkill]:
+    """Return all tracked skills for a user."""
+    sb = get_supabase()
+    result = (
+        sb.table("tech_skills")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("skill")
+        .execute()
+    )
+    return [_row_to_tech_skill(r) for r in result.data]
+
+
+async def get_tech_skill(user_id: str, skill: str) -> TechSkill | None:
+    """Fetch a single skill entry."""
+    sb = get_supabase()
+    result = (
+        sb.table("tech_skills")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("skill", skill)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_tech_skill(result.data[0])
+
+
+# ── Learning log (MakubeX — Phase CH-3) ────────────────────────────
+
+def _row_to_learning_log(row: dict) -> LearningLogEntry:
+    """Convert a Supabase row dict to a LearningLogEntry dataclass."""
+    return LearningLogEntry(
+        id=row["id"],
+        user_id=row["user_id"],
+        topic=row["topic"],
+        category=row.get("category"),
+        depth=row.get("depth", "intro"),
+        taught_at=row.get("taught_at"),
+        notes=row.get("notes"),
+    )
+
+
+async def add_learning_log(
+    user_id: str,
+    topic: str,
+    category: str | None = None,
+    depth: str = "intro",
+    notes: str | None = None,
+) -> LearningLogEntry:
+    """Record a taught topic. Returns the created entry."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "topic": topic,
+        "depth": depth,
+    }
+    if category:
+        data["category"] = category
+    if notes:
+        data["notes"] = notes
+    result = sb.table("learning_log").insert(data).execute()
+    return _row_to_learning_log(result.data[0])
+
+
+async def get_learning_log(
+    user_id: str, limit: int = 50
+) -> list[LearningLogEntry]:
+    """Return the most recent learning log entries for a user."""
+    sb = get_supabase()
+    result = (
+        sb.table("learning_log")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("taught_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [_row_to_learning_log(r) for r in result.data]
+
+
+async def get_learning_log_for_topic(
+    user_id: str, topic: str
+) -> list[LearningLogEntry]:
+    """Return all entries for a specific topic (used to judge depth progression)."""
+    sb = get_supabase()
+    result = (
+        sb.table("learning_log")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("topic", topic)
+        .order("taught_at", desc=True)
+        .execute()
+    )
+    return [_row_to_learning_log(r) for r in result.data]
+
+
+# ── Code reviews (MakubeX — Phase CH-3) ────────────────────────────
+
+def _row_to_code_review(row: dict) -> CodeReview:
+    """Convert a Supabase row dict to a CodeReview dataclass."""
+    issues = row.get("issues_found") or []
+    if isinstance(issues, str):
+        import json as _json
+        try:
+            issues = _json.loads(issues)
+        except Exception:
+            issues = []
+    return CodeReview(
+        id=row["id"],
+        user_id=row["user_id"],
+        snippet_hash=row.get("snippet_hash"),
+        language=row.get("language"),
+        summary=row.get("summary"),
+        issues_found=issues,
+        created_at=row.get("created_at"),
+    )
+
+
+async def save_code_review(
+    user_id: str,
+    snippet_hash: str,
+    language: str | None,
+    summary: str,
+    issues_found: list[dict],
+) -> CodeReview:
+    """Record a completed code review."""
+    sb = get_supabase()
+    result = sb.table("code_reviews").insert(
+        {
+            "user_id": user_id,
+            "snippet_hash": snippet_hash,
+            "language": language,
+            "summary": summary,
+            "issues_found": issues_found,
+        }
+    ).execute()
+    return _row_to_code_review(result.data[0])
+
+
+async def get_code_review_by_hash(
+    user_id: str, snippet_hash: str
+) -> CodeReview | None:
+    """Find a previous review for the same snippet hash (dedup)."""
+    sb = get_supabase()
+    result = (
+        sb.table("code_reviews")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("snippet_hash", snippet_hash)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        return None
+    return _row_to_code_review(result.data[0])
+
+
+async def get_recent_code_reviews(
+    user_id: str, limit: int = 10
+) -> list[CodeReview]:
+    """Return the most recent code reviews for a user."""
+    sb = get_supabase()
+    result = (
+        sb.table("code_reviews")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [_row_to_code_review(r) for r in result.data]

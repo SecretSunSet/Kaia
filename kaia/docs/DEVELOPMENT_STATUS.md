@@ -1,8 +1,8 @@
 # KAIA Development Status
 
-**Last updated:** 2026-04-15
-**Current phase:** All phases complete — v1.0 — **Deployed to AWS EC2 t4g.small**
-**Overall progress:** 100% (Phases 1–6 of 6)
+**Last updated:** 2026-04-21
+**Current phase:** Expert channel rollout — CH-3 (MakubeX) complete
+**Overall progress:** v1.0 core (Phases 1–6) done; channel phases CH-1, CH-1.1, CH-2, CH-3 done
 **Production host:** `3.106.134.24` (Ubuntu 24.04, ARM, 2 vCPU, 2GB RAM)
 **Runtime:** systemd unit `kaia.service`, auto-deploy via GitHub Actions on push to `main`
 
@@ -18,6 +18,13 @@
 | 4 | Budget | 100% | ✅ Complete |
 | 5 | Briefing + Web Browse | 100% | ✅ Complete |
 | 6 | Voice + Polish | 100% | ✅ Complete |
+| CH-1 | Expert channel system | 100% | ✅ Complete |
+| CH-1.1 | Telegram forum topic routing | 100% | ✅ Complete |
+| CH-2 | Hevn (Financial Advisor) | 100% | ✅ Complete |
+| CH-3 | MakubeX (Tech Lead / CTO) | 100% | ✅ Complete |
+| CH-3.5 | Expert-suggestion polish | 0% | ⏳ Next |
+| CH-4 | Kazuki (Investment Manager) | 0% | ⏳ Planned |
+| CH-5 | Akabane (Trading Strategist) | 0% | ⏳ Planned |
 
 ---
 
@@ -185,6 +192,33 @@
 - /reset → CONFIRM DELETE → data wiped
 - Spam 25 messages quickly → rate limit kicks in
 - Send a very long question → response is properly truncated
+
+---
+
+## Phase CH-3 — MakubeX (Tech Lead / CTO) ✅
+
+### What's done
+
+- Migration `005_makubex.sql`: `tech_projects`, `tech_skills`, `learning_log`, `code_reviews` with indexes + service-role RLS.
+- `database/models.py` and `database/queries.py` extended with the four dataclasses and their CRUD helpers.
+- New expert package `experts/makubex/`: `expert.py`, `prompts.py`, `parser.py`, `extractor.py`, plus 8 skills and the proactive weekly brief.
+- Intent classifier with keyword short-circuits over 8 domains + AI fallback; fenced code blocks auto-route to `code_review`.
+- `CodeReviewSkill` dedupes on SHA-256 snippet hashes so repeat pastes hit the cached result.
+- `LearningCoachSkill` holds `SKILL_TREES` for python / web_dev / devops / databases / security and advances intro → solid → deep per topic.
+- Memory extractor mirrors `tech_stack / skills / projects / work_context / infrastructure` into shared `user_profile` under `technical`.
+- Scheduler `schedule_makubex_weekly_brief` fires Mondays 08:00 user local time; forum-mode delivery routes to MakubeX's topic when mapped.
+- Slash shortcuts: `/makubex_review`, `/makubex_projects`, `/makubex_learn`, `/makubex_security`, `/makubex_brief`.
+
+### How to test
+
+- Open `/makubex` for the first time → onboarding in character, asks about current project + stack. Weekly brief auto-scheduled for next Monday 08:00.
+- Paste a code block in `/makubex` → MakubeX review with severity-sorted issues. Paste the same block again → response says "cached".
+- "Add a new project: foo in Python + FastAPI" → row appears in `tech_projects`, ack returned.
+- `/makubex_projects` → list with status emojis.
+- "Explain async/await" → learning coach response; row added to `learning_log`; next explain bumps depth.
+- `/makubex_security` → audit of your first active project using its tracked stack.
+- `/makubex_brief` → weekly tech brief on demand.
+- Mention technical facts (e.g. "I'm on Python 3.11 with Supabase") → extractor mirrors to shared `user_profile` under `technical`.
 
 ---
 

@@ -97,7 +97,9 @@ SKILL_WEB_BROWSE = "web_browse"
 
 ### Profile Categories
 
-`identity`, `health`, `finances`, `personality`, `preferences`, `goals`, `patterns`
+`identity`, `health`, `finances`, `technical`, `personality`, `preferences`, `goals`, `patterns`
+
+`technical` is the shared-profile category MakubeX mirrors into when it extracts high-signal tech facts (stack, skills, projects, work context, infrastructure).
 
 ### Memory Fact Types
 
@@ -156,3 +158,28 @@ SKILL_WEB_BROWSE = "web_browse"
 | `EUR` | `€` |
 | `GBP` | `£` |
 | `JPY` | `¥` |
+
+### Channels
+
+`CHANNEL_GENERAL`, `CHANNEL_HEVN`, `CHANNEL_KAZUKI`, `CHANNEL_AKABANE`, `CHANNEL_MAKUBEX`.
+
+### MakubeX Required Knowledge
+
+`CHANNEL_REQUIRED_KNOWLEDGE[CHANNEL_MAKUBEX]` drives onboarding questions and the `current_gap` prompt slot:
+
+| Priority | Category | Key | Question |
+|----------|----------|-----|----------|
+| 1 | `projects` | `current_projects` | What are you currently building? |
+| 1 | `stack` | `tech_stack` | What's your primary tech stack? |
+| 2 | `skills` | `skill_level` | How would you rate your skills per technology? |
+| 2 | `goals` | `learning_goals` | What do you want to learn next? |
+| 2 | `context` | `work_context` | Are you a solo dev, in a team, or at a company? |
+| 3 | `tools` | `dev_environment` | What's your dev setup (OS, IDE, tools)? |
+
+### Scheduled Jobs
+
+| Job ID pattern | Trigger | Purpose |
+|----------------|---------|---------|
+| `briefing_<user_id>` | Daily at user's `BRIEFING_DEFAULT_TIME` | General KAIA morning briefing |
+| `hevn_digest_<user_id>` | Sundays 09:00 user timezone | Hevn weekly financial digest |
+| `makubex_brief_<user_id>` | Mondays 08:00 user timezone | MakubeX weekly tech brief |
