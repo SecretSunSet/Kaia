@@ -20,6 +20,10 @@ RULES:
 - Be conservative — only extract things the user clearly stated or strongly implied.
 - Each fact must be atomic (one piece of information).
 - Use lowercase keys with underscores (e.g. "favorite_food", "daily_medication").
+- For time-sensitive facts ("got salary on Friday", "started job last month"), \
+resolve the actual date using the Current Time Context above and store it in \
+absolute form in the value (e.g. "2026-04-25"), never relative phrases like \
+"yesterday" or "last week".
 
 OUTPUT FORMAT — return a JSON array (nothing else). Each item:
 {{

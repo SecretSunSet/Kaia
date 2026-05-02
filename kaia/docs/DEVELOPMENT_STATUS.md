@@ -1,10 +1,14 @@
 # KAIA Development Status
 
-**Last updated:** 2026-04-21
-**Current phase:** Expert channel rollout — CH-3 (MakubeX) complete
+**Last updated:** 2026-05-02
+**Current phase:** Time-awareness hotfix applied; CH-3.5 (expert-suggestion polish) is next
 **Overall progress:** v1.0 core (Phases 1–6) done; channel phases CH-1, CH-1.1, CH-2, CH-3 done
 **Production host:** `3.106.134.24` (Ubuntu 24.04, ARM, 2 vCPU, 2GB RAM)
 **Runtime:** systemd unit `kaia.service`, auto-deploy via GitHub Actions on push to `main`
+
+## Latest hotfix — 2026-05-02 — Time Awareness
+
+KAIA was answering "what year is it?" as 2024 in 2026, and Hevn was calling week-old expenses "yesterday". Fixed by injecting a `# Current Time Context` block at the single `AIEngine.chat()` chokepoint (covers KAIA, every expert, onboarding, extraction), prefixing every loaded conversation message with `[<relative time>]`, surfacing `Transaction.created_at` in Hevn's budget context, instructing extractors to resolve relative phrases to absolute ISO dates, and making budget period resolution + daily-brief header timezone-aware (`today_in_tz()` instead of UTC `date.today()`). See CHANGELOG and ARCHITECTURE → "Time Awareness".
 
 ---
 

@@ -5,6 +5,42 @@ Format: timestamped entries per phase, grouped by Added/Changed/Fixed/Notes.
 
 ---
 
+## [2026-05-02] Hotfix — Time Awareness
+
+### Added
+
+- `utils/time_utils.py` — three new helpers:
+  - `today_in_tz(tz_name)` — calendar date in user's timezone.
+  - `format_current_context(tz_name)` — "Current date and time: …" block injected into every LLM call.
+  - `format_relative_time(dt, tz_name)` — "yesterday at 3:45 PM" / "3 days ago (Tue, Apr 28)" / "2 months ago (Mar 03, 2026)" formatting.
+  - `format_transaction_with_time(tx, tz_name, currency_symbol)` — one-line transaction line with relative timestamp.
+
+### Changed
+
+- `core/ai_engine.py` — `AIEngine.chat()` now auto-prepends a `# Current Time Context` block to the system prompt for every Claude/Groq call. Added optional `user_timezone` parameter (defaults to `settings.default_timezone`). This single chokepoint gives KAIA, every expert, onboarding, and memory extraction full time awareness with no per-call edits.
+- `experts/base.py` — `BaseExpert.get_conversation_history()` now prefixes each message with `[<relative time>]` so experts can reason about *when* prior turns happened. Accepts optional `user_timezone`.
+- `experts/hevn/expert.py`, `experts/makubex/expert.py`, `experts/placeholder.py` — pass `user.timezone` to `get_conversation_history()`.
+- `experts/hevn/expert.py` — `_budget_summary` is now timezone-aware and appends the 5 most recent transactions formatted with relative timestamps so Hevn sees "logged 5 days ago" rather than just totals.
+- `bot/telegram_bot.py` — general (non-channel) conversation history loaded for KAIA is also `[relative time]`-prefixed in both the text and voice flows.
+- `core/channel_extractor.py`, `skills/memory/prompts.py` — extraction prompts now instruct the model to resolve relative phrases to absolute dates using the injected time context (e.g. store `"2026-04-25"`, never `"yesterday"`).
+- `skills/budget/reports.py` — `resolve_period()` and `get_monthly_comparison()` accept `tz` and use `today_in_tz()` instead of UTC `date.today()`.
+- `skills/budget/handler.py` — `_handle_summary`, `_handle_comparison`, `_handle_list_limits`, `_check_budget_warning` all use the user's timezone for "today".
+- `skills/briefing/handler.py` — daily-brief header now carries the current date (e.g. "🌅 Good morning! Here's your daily briefing — Saturday, May 02, 2026:"); `_get_budget_section` is timezone-aware.
+
+### Fixed
+
+- KAIA no longer assumes the year/date from training-data cutoff. Asking "what year is it?" / "what's today's date?" now returns the live answer.
+- Hevn no longer mis-labels week-old expenses as "yesterday" — every transaction in her budget context now carries its actual relative timestamp.
+- `[relative time]` prefix on conversation history means experts can correctly answer "what did we discuss earlier this week?" by referencing real prior dates.
+
+### Notes
+
+- The `users.timezone` column already existed (default `Asia/Manila`); no migration needed.
+- Per-expert prompt files (`experts/hevn/prompts.py`, `experts/makubex/prompts.py`) intentionally untouched — the `chat()` chokepoint covers them.
+- Out of scope (potential follow-up): the remaining `date.today()` calls inside Hevn skill internals (`budget_coaching.py`, `bills_tracker.py`, `health_assessment.py`, `goals_manager.py`, `proactive.py`, `market_trends.py`) — these are 30/90-day relative windows where UTC vs local-tz drift is negligible. Can be swept in a follow-up if desired.
+
+---
+
 ## [2026-04-21] Phase CH-3 — MakubeX Tech Lead
 
 ### Added

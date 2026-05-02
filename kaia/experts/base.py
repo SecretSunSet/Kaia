@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 
 from loguru import logger
 
+from config.settings import get_settings
 from core.ai_engine import AIEngine
 from core.channel_manager import ChannelManager
 from core.channel_memory import ChannelMemoryManager
@@ -19,6 +20,7 @@ from database.queries import (
     get_channel_profile,
 )
 from skills.base import SkillResult
+from utils.time_utils import format_relative_time
 
 
 class BaseExpert(ABC):
@@ -46,10 +48,27 @@ class BaseExpert(ABC):
         user_id: str,
         channel_id: str,
         limit: int = 20,
+        user_timezone: str | None = None,
     ) -> list[dict[str, str]]:
-        """Load recent channel-specific conversation history."""
+        """Load recent channel-specific conversation history.
+
+        Each message's content is prefixed with a relative-time tag
+        (e.g. "[3 days ago] ...") so the expert can reason about *when*
+        prior turns happened rather than treating them as undated.
+        """
+        tz = user_timezone or get_settings().default_timezone
         convos = await get_channel_conversations(user_id, channel_id, limit)
-        return [{"role": c.role, "content": c.content} for c in convos]
+        return [
+            {
+                "role": c.role,
+                "content": (
+                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
+                    if c.created_at
+                    else c.content
+                ),
+            }
+            for c in convos
+        ]
 
     async def save_messages(
         self,

@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from config.constants import BUDGET_CATEGORY_EMOJIS, CURRENCY_SYMBOLS
+from config.settings import get_settings
 from database import queries as db
 from database.models import BudgetLimit
+from utils.time_utils import today_in_tz
 
 
 async def get_period_summary(
@@ -45,9 +47,11 @@ async def get_category_spending(
     return await db.get_category_total(user_id, category, start_date, end_date)
 
 
-async def get_monthly_comparison(user_id: str) -> dict:
+async def get_monthly_comparison(
+    user_id: str, tz: str | None = None
+) -> dict:
     """Compare current month vs last month spending."""
-    today = date.today()
+    today = today_in_tz(tz or get_settings().default_timezone)
 
     # Current month
     current_start = today.replace(day=1).isoformat()
@@ -191,12 +195,16 @@ def format_budget_limits_message(
     return "\n".join(lines)
 
 
-def resolve_period(message: str) -> tuple[str, str, str]:
+def resolve_period(
+    message: str, tz: str | None = None
+) -> tuple[str, str, str]:
     """Determine date range from a natural language period reference.
 
     Returns (start_date, end_date, label) where dates are ISO format strings.
+    Uses the user's timezone for "today" so DM-at-midnight edge cases land
+    on the correct calendar day.
     """
-    today = date.today()
+    today = today_in_tz(tz or get_settings().default_timezone)
     msg = message.lower()
 
     if "today" in msg:

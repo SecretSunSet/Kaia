@@ -267,14 +267,17 @@ Internal helper that converts a Supabase result row into a `BudgetLimit` datacla
 
 Initialises Claude client (always) and Groq client (if `GROQ_API_KEY` is set).
 
-#### `async chat(self, system_prompt: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> AIResponse`
+#### `async chat(self, system_prompt: str, messages: list[dict[str, str]], max_tokens: int | None = None, user_timezone: str | None = None) -> AIResponse`
 
 Sends a chat request to Claude. Falls back to Groq on any Claude failure. Raises `RuntimeError` if both fail (or Groq is not configured).
 
+**Time-context auto-injection (since 2026-05-02 hotfix):** the call automatically prepends a `# Current Time Context` block (date, time, timezone, weekday) to `system_prompt` so every caller — KAIA general chat, every expert, onboarding, memory extraction — gets time awareness for free. No caller needs to inject this themselves.
+
 **Parameters:**
-- `system_prompt` — System message (persona + user profile)
+- `system_prompt` — System message (persona + user profile). Time context is prepended to this automatically.
 - `messages` — Conversation as `[{"role": "user"|"assistant", "content": "..."}]`
 - `max_tokens` — Override default max tokens (optional)
+- `user_timezone` — IANA tz name (e.g. `"Asia/Manila"`) used for the time-context block. Defaults to `settings.default_timezone`.
 
 ### `build_message_history(conversations: list[dict[str, str]], current_message: str) -> list[dict[str, str]]`
 
@@ -470,6 +473,10 @@ Returns current UTC time (timezone-aware).
 
 Returns current time in the given timezone.
 
+### `today_in_tz(tz_name: str = "Asia/Manila") -> date`
+
+Returns today's calendar date in the given timezone. Use this in place of `date.today()` (which is UTC-bound) anywhere "today" needs to match the user's local day.
+
 ### `to_utc(dt: datetime, from_tz: str = "Asia/Manila") -> datetime`
 
 Converts a naive or local datetime to UTC. Naive datetimes are assumed to be in `from_tz`.
@@ -481,6 +488,26 @@ Converts a UTC datetime to a local timezone.
 ### `format_local(dt: datetime, to_tz: str = "Asia/Manila") -> str`
 
 Formats a datetime for display in the user's timezone. Returns e.g. `"Mon Apr 14 08:00 PM"`.
+
+### `format_current_context(tz_name: str = "Asia/Manila") -> str`
+
+Returns a single-line "Current date and time: …" block that `AIEngine.chat()` auto-prepends to every system prompt. Format:
+
+```
+Current date and time: Saturday, May 02, 2026 at 03:45 PM (Asia/Manila, UTC+08:00). Today is May 02, 2026. The current year is 2026. It is currently Saturday.
+```
+
+### `format_relative_time(dt: datetime, tz_name: str = "Asia/Manila") -> str`
+
+Formats a UTC or naive timestamp as a human-readable relative time in the user's timezone. Naive datetimes are treated as UTC.
+
+Examples: `"just now"`, `"5 minutes ago"`, `"2 hours ago"`, `"yesterday at 3:45 PM"`, `"3 days ago (Tuesday, Apr 28)"`, `"last week (Apr 25)"`, `"2 weeks ago (Apr 18)"`, `"1 month ago (Apr 02, 2026)"`, `"1 year ago (May 02, 2025)"`.
+
+Used to prefix every loaded conversation message (so experts know *when* prior turns happened) and to format transactions in Hevn's budget context.
+
+### `format_transaction_with_time(tx, tz_name: str = "Asia/Manila", currency_symbol: str = "₱") -> str`
+
+Formats a `Transaction`-shaped object (anything with `.amount`, `.description`, `.category`, `.created_at`) into a single line: `"₱350.00 - Tiktok Shop (Shopping) — logged 5 days ago (Tuesday, Apr 27)"`. Used to feed Hevn timestamped transaction lists.
 
 ### `next_occurrence(dt: datetime, recurrence: str) -> datetime`
 
