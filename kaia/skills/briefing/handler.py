@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, timezone as tz
+from datetime import datetime, timezone as tz
 
 from loguru import logger
 
@@ -20,7 +20,7 @@ from database.models import User
 from skills.base import BaseSkill, SkillResult
 from skills.briefing.prompts import build_motivational_note_prompt, build_briefing_time_parse_prompt
 from skills.web_browse.search import get_weather
-from utils.time_utils import format_local, now_in_tz
+from utils.time_utils import format_local, now_in_tz, today_in_tz
 
 
 class BriefingSkill(BaseSkill):
@@ -71,7 +71,7 @@ class BriefingSkill(BaseSkill):
         # Gather all sections in parallel
         results = await asyncio.gather(
             self._get_reminders_section(user.id, tz_name),
-            self._get_budget_section(user.id, symbol),
+            self._get_budget_section(user.id, symbol, tz_name),
             self._get_weather_section(profile_context),
             self._get_motivational_note(profile_context),
             return_exceptions=True,
@@ -82,8 +82,15 @@ class BriefingSkill(BaseSkill):
         weather_section = results[2] if not isinstance(results[2], Exception) else ""
         note_section = results[3] if not isinstance(results[3], Exception) else ""
 
-        # Assemble briefing
-        sections = ["🌅 Good morning! Here's your daily briefing:"]
+        # Assemble briefing — header carries the current date so the user sees
+        # "today" anchored, and so the briefing is unambiguous if delivered
+        # late or rescheduled.
+        today = now_in_tz(tz_name)
+        header = (
+            f"🌅 Good morning! Here's your daily briefing — "
+            f"{today.strftime('%A, %B %d, %Y')}:"
+        )
+        sections = [header]
 
         if weather_section:
             sections.append(f"\n🌤️ Weather\n{weather_section}")
@@ -134,10 +141,12 @@ class BriefingSkill(BaseSkill):
             logger.error("Briefing reminders failed: {}", exc)
             return ""
 
-    async def _get_budget_section(self, user_id: str, symbol: str) -> str:
+    async def _get_budget_section(
+        self, user_id: str, symbol: str, tz_name: str
+    ) -> str:
         """Get current month budget snapshot."""
         try:
-            today = date.today()
+            today = today_in_tz(tz_name)
             start = today.replace(day=1).isoformat()
             end = today.isoformat()
 

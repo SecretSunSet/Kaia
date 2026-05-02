@@ -243,11 +243,15 @@ class HevnExpert(BaseExpert):
         intent: str,
     ):
         """Build a Hevn-voiced AI response with full context."""
-        history = await self.get_conversation_history(user.id, channel.channel_id)
+        history = await self.get_conversation_history(
+            user.id, channel.channel_id, user_timezone=user.timezone
+        )
         user_context = await self._channel_mem.load_combined_context(
             user.id, channel.channel_id
         )
-        budget_summary = await self._budget_summary(user.id, user.currency or "PHP")
+        budget_summary = await self._budget_summary(
+            user.id, user.currency or "PHP", user_timezone=user.timezone
+        )
         goals_summary = await self.goals.format_goals_overview(
             user.id, user.currency or "PHP"
         )
@@ -282,10 +286,15 @@ class HevnExpert(BaseExpert):
         messages = build_message_history(history, message)
         return await self.ai.chat(system_prompt=system_prompt, messages=messages)
 
-    async def _budget_summary(self, user_id: str, currency: str) -> str:
-        from datetime import date, timedelta
+    async def _budget_summary(
+        self, user_id: str, currency: str, user_timezone: str | None = None
+    ) -> str:
+        from utils.time_utils import format_transaction_with_time, today_in_tz
+        from config.settings import get_settings
+
         symbol = CURRENCY_SYMBOLS.get(currency, currency)
-        today = date.today()
+        tz = user_timezone or get_settings().default_timezone
+        today = today_in_tz(tz)
         month_start = today.replace(day=1)
 
         income = await db.get_income_total(
@@ -299,14 +308,32 @@ class HevnExpert(BaseExpert):
         )
         if income == 0 and expenses == 0:
             return "(no transactions logged this month)"
+
         top = categories[:3]
         top_str = ", ".join(
             f"{c['category']}: {symbol}{c['total']:,.0f}" for c in top
         )
+
+        # Pull the 5 most recent transactions so Hevn can reason about *when*
+        recent_txs = await db.get_transactions(
+            user_id, month_start.isoformat(), today.isoformat()
+        )
+        recent_lines = ""
+        if recent_txs:
+            tail = sorted(
+                recent_txs,
+                key=lambda t: t.created_at or t.transaction_date,
+                reverse=True,
+            )[:5]
+            recent_lines = "\nRecent transactions:\n" + "\n".join(
+                f"  • {format_transaction_with_time(t, tz, currency_symbol=symbol)}"
+                for t in tail
+            )
+
         return (
             f"Month-to-date: income {symbol}{income:,.0f}, "
             f"expenses {symbol}{expenses:,.0f}. "
-            f"Top: {top_str or '(none)'}"
+            f"Top: {top_str or '(none)'}.{recent_lines}"
         )
 
     # ── Extraction hook (Hevn-specific mirror) ──────────────────────

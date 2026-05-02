@@ -329,7 +329,9 @@ class MakubeXExpert(BaseExpert):
         intent: str,
     ):
         """Build a MakubeX-voiced AI response with full tech context."""
-        history = await self.get_conversation_history(user.id, channel.channel_id)
+        history = await self.get_conversation_history(
+            user.id, channel.channel_id, user_timezone=user.timezone
+        )
 
         active_projects = await self._format_active_projects(user.id)
         tech_skills = await self._format_tech_skills(user.id)

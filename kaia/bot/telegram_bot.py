@@ -59,6 +59,7 @@ from experts.placeholder import PlaceholderExpert
 from skills.briefing.handler import BriefingSkill
 from skills.reminders.handler import set_bot
 from utils.formatters import truncate
+from utils.time_utils import format_relative_time
 from utils.voice_stt import transcribe_voice
 from utils.voice_tts import text_to_speech, safe_delete, cleanup_old_files
 
@@ -568,7 +569,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         recent_convos = await get_recent_conversations(
             user.id, limit=settings.max_conversation_history
         )
-        history = [{"role": c.role, "content": c.content} for c in recent_convos]
+        tz = user.timezone or settings.default_timezone
+        history = [
+            {
+                "role": c.role,
+                "content": (
+                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
+                    if c.created_at
+                    else c.content
+                ),
+            }
+            for c in recent_convos
+        ]
 
         result = await skill_router.route(
             user=user,
@@ -705,7 +717,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         recent_convos = await get_recent_conversations(
             user.id, limit=settings.max_conversation_history
         )
-        history = [{"role": c.role, "content": c.content} for c in recent_convos]
+        tz = user.timezone or settings.default_timezone
+        history = [
+            {
+                "role": c.role,
+                "content": (
+                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
+                    if c.created_at
+                    else c.content
+                ),
+            }
+            for c in recent_convos
+        ]
 
         result = await skill_router.route(
             user=user,

@@ -9,6 +9,7 @@ from groq import AsyncGroq
 from loguru import logger
 
 from config.settings import get_settings
+from utils.time_utils import format_current_context
 
 
 @dataclass
@@ -43,16 +44,31 @@ class AIEngine:
         system_prompt: str,
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
+        user_timezone: str | None = None,
     ) -> AIResponse:
-        """Send a chat request. Falls back to Groq on Claude failure."""
+        """Send a chat request. Falls back to Groq on Claude failure.
+
+        Auto-prepends a "Current Time Context" block to the system prompt so
+        every caller (general chat, every expert, onboarding, extraction)
+        gets time awareness with no per-call changes.
+        """
         max_tokens = max_tokens or self._settings.claude_max_tokens
+        tz = user_timezone or self._settings.default_timezone
+        full_system = (
+            f"# Current Time Context\n{format_current_context(tz)}\n\n"
+            "When the user mentions relative time (\"yesterday\", \"last week\", "
+            "\"earlier\"), compute against the time above. Never assume a "
+            "different year or date. When you reference past events, use the "
+            "actual timestamps in the data, not your assumption.\n\n---\n\n"
+            f"{system_prompt}"
+        )
         try:
-            return await self._call_claude(system_prompt, messages, max_tokens)
+            return await self._call_claude(full_system, messages, max_tokens)
         except Exception as exc:
             logger.warning("Claude API failed ({}), falling back to Groq", exc)
             if self._groq is None:
                 raise RuntimeError("Claude failed and no Groq API key configured") from exc
-            return await self._call_groq(system_prompt, messages, max_tokens)
+            return await self._call_groq(full_system, messages, max_tokens)
 
     # ── Claude ───────────────────────────────────────────────────────
 

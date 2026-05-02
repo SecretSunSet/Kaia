@@ -26,7 +26,9 @@ class PlaceholderExpert(BaseExpert):
     ) -> SkillResult:
         """Handle a message in this expert's channel."""
         # 1. Load channel conversation history
-        history = await self.get_conversation_history(user.id, channel.channel_id)
+        history = await self.get_conversation_history(
+            user.id, channel.channel_id, user_timezone=user.timezone
+        )
 
         # 2. Load combined context (global profile + channel profile)
         combined_context = await self._channel_mem.load_combined_context(

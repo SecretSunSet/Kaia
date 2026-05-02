@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 
 from loguru import logger
 
@@ -34,6 +33,7 @@ from skills.budget.reports import (
     get_period_summary,
     resolve_period,
 )
+from utils.time_utils import today_in_tz
 
 
 class BudgetSkill(BaseSkill):
@@ -148,7 +148,7 @@ class BudgetSkill(BaseSkill):
         # Check budget limit for this category
         if parsed["type"] == "expense":
             warning = await self._check_budget_warning(
-                user.id, parsed["category"], symbol
+                user.id, parsed["category"], symbol, user.timezone
             )
             if warning:
                 text += warning
@@ -180,14 +180,18 @@ class BudgetSkill(BaseSkill):
         )
 
     async def _check_budget_warning(
-        self, user_id: str, category: str, currency_symbol: str
+        self,
+        user_id: str,
+        category: str,
+        currency_symbol: str,
+        user_timezone: str | None = None,
     ) -> str | None:
         """Check if spending in a category is near or over its budget limit."""
         limit = await db.get_budget_limit(user_id, category)
         if limit is None:
             return None
 
-        today = date.today()
+        today = today_in_tz(user_timezone) if user_timezone else today_in_tz()
         start_of_month = today.replace(day=1).isoformat()
         spent = await db.get_category_total(
             user_id, category, start_of_month, today.isoformat()
@@ -203,7 +207,7 @@ class BudgetSkill(BaseSkill):
     # ── Summary ──────────────────────────────────────────────────────
 
     async def _handle_summary(self, user: User, message: str) -> SkillResult:
-        start_date, end_date, label = resolve_period(message)
+        start_date, end_date, label = resolve_period(message, tz=user.timezone)
         currency = user.currency or "PHP"
         symbol = CURRENCY_SYMBOLS.get(currency, currency)
 
@@ -219,7 +223,7 @@ class BudgetSkill(BaseSkill):
         currency = user.currency or "PHP"
         symbol = CURRENCY_SYMBOLS.get(currency, currency)
 
-        data = await get_monthly_comparison(user.id)
+        data = await get_monthly_comparison(user.id, tz=user.timezone)
         text = format_comparison_message(data, symbol)
         return SkillResult(text=text, skill_name=self.name)
 
@@ -256,7 +260,7 @@ class BudgetSkill(BaseSkill):
         limits = await db.get_budget_limits(user.id)
 
         # Get current month spending per category
-        today = date.today()
+        today = today_in_tz(user.timezone) if user.timezone else today_in_tz()
         start_of_month = today.replace(day=1).isoformat()
         end = today.isoformat()
 
