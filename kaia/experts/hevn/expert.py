@@ -321,9 +321,7 @@ class HevnExpert(BaseExpert):
         recent_lines = ""
         if recent_txs:
             tail = sorted(
-                recent_txs,
-                key=lambda t: t.created_at or t.transaction_date,
-                reverse=True,
+                recent_txs, key=lambda t: t.transaction_date, reverse=True
             )[:5]
             recent_lines = "\nRecent transactions:\n" + "\n".join(
                 f"  • {format_transaction_with_time(t, tz, currency_symbol=symbol)}"

@@ -32,6 +32,8 @@ Format: timestamped entries per phase, grouped by Added/Changed/Fixed/Notes.
 - KAIA no longer assumes the year/date from training-data cutoff. Asking "what year is it?" / "what's today's date?" now returns the live answer.
 - Hevn no longer mis-labels week-old expenses as "yesterday" — every transaction in her budget context now carries its actual relative timestamp.
 - `[relative time]` prefix on conversation history means experts can correctly answer "what did we discuss earlier this week?" by referencing real prior dates.
+- `format_relative_time()` now accepts ISO-string timestamps (Supabase REST returns `created_at` as a string, not a `datetime`) — fixes a regression introduced by the initial hotfix where loading any conversation history crashed with `'str' object has no attribute 'tzinfo'`.
+- `experts/hevn/expert.py:_budget_summary` now sorts recent transactions by `transaction_date` only (not the mixed `created_at or transaction_date` key, which would crash if any transaction lacked a `created_at`).
 
 ### Notes
 
