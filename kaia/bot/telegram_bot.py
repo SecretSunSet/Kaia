@@ -570,17 +570,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user.id, limit=settings.max_conversation_history
         )
         tz = user.timezone or settings.default_timezone
-        history = [
-            {
-                "role": c.role,
-                "content": (
-                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
-                    if c.created_at
-                    else c.content
-                ),
-            }
-            for c in recent_convos
-        ]
+        history: list[dict[str, str]] = []
+        for c in recent_convos:
+            rel = format_relative_time(c.created_at, tz) if c.created_at else ""
+            content = f"[{rel}] {c.content}" if rel else c.content
+            history.append({"role": c.role, "content": content})
 
         result = await skill_router.route(
             user=user,
@@ -718,17 +712,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             user.id, limit=settings.max_conversation_history
         )
         tz = user.timezone or settings.default_timezone
-        history = [
-            {
-                "role": c.role,
-                "content": (
-                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
-                    if c.created_at
-                    else c.content
-                ),
-            }
-            for c in recent_convos
-        ]
+        history: list[dict[str, str]] = []
+        for c in recent_convos:
+            rel = format_relative_time(c.created_at, tz) if c.created_at else ""
+            content = f"[{rel}] {c.content}" if rel else c.content
+            history.append({"role": c.role, "content": content})
 
         result = await skill_router.route(
             user=user,

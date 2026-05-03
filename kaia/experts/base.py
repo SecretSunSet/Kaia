@@ -58,17 +58,12 @@ class BaseExpert(ABC):
         """
         tz = user_timezone or get_settings().default_timezone
         convos = await get_channel_conversations(user_id, channel_id, limit)
-        return [
-            {
-                "role": c.role,
-                "content": (
-                    f"[{format_relative_time(c.created_at, tz)}] {c.content}"
-                    if c.created_at
-                    else c.content
-                ),
-            }
-            for c in convos
-        ]
+        out: list[dict[str, str]] = []
+        for c in convos:
+            rel = format_relative_time(c.created_at, tz) if c.created_at else ""
+            content = f"[{rel}] {c.content}" if rel else c.content
+            out.append({"role": c.role, "content": content})
+        return out
 
     async def save_messages(
         self,

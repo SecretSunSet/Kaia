@@ -497,9 +497,9 @@ Returns a single-line "Current date and time: …" block that `AIEngine.chat()` 
 Current date and time: Saturday, May 02, 2026 at 03:45 PM (Asia/Manila, UTC+08:00). Today is May 02, 2026. The current year is 2026. It is currently Saturday.
 ```
 
-### `format_relative_time(dt: datetime, tz_name: str = "Asia/Manila") -> str`
+### `format_relative_time(dt: datetime | str | None, tz_name: str = "Asia/Manila") -> str`
 
-Formats a UTC or naive timestamp as a human-readable relative time in the user's timezone. Naive datetimes are treated as UTC.
+Formats a UTC or naive timestamp as a human-readable relative time in the user's timezone. Accepts a `datetime`, an ISO-8601 string (Supabase REST returns timestamps as strings), or `None`. Naive datetimes are treated as UTC. Returns `""` if input is `None` or unparseable.
 
 Examples: `"just now"`, `"5 minutes ago"`, `"2 hours ago"`, `"yesterday at 3:45 PM"`, `"3 days ago (Tuesday, Apr 28)"`, `"last week (Apr 25)"`, `"2 weeks ago (Apr 18)"`, `"1 month ago (Apr 02, 2026)"`, `"1 year ago (May 02, 2025)"`.
 

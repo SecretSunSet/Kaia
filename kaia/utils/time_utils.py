@@ -71,14 +71,27 @@ def format_current_context(tz_name: str = "Asia/Manila") -> str:
     )
 
 
-def format_relative_time(dt: datetime, tz_name: str = "Asia/Manila") -> str:
+def format_relative_time(
+    dt: "datetime | str | None", tz_name: str = "Asia/Manila"
+) -> str:
     """Format a timestamp as relative time from now in the user's timezone.
+
+    Accepts either a ``datetime`` or an ISO-8601 string (Supabase's REST API
+    returns timestamps as strings). Returns an empty string if ``dt`` is None
+    or unparseable.
 
     Examples: "just now", "5 minutes ago", "2 hours ago",
     "yesterday at 3:45 PM", "3 days ago (Tuesday, Apr 28)",
     "last week (Apr 25)", "2 weeks ago (Apr 18)",
     "1 month ago (Apr 02, 2026)", "1 year ago (May 02, 2025)".
     """
+    if dt is None:
+        return ""
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return ""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     local = dt.astimezone(ZoneInfo(tz_name))
