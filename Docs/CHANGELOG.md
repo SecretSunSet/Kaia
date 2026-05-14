@@ -1,5 +1,36 @@
 # Changelog
 
+## [2026-05-14] R-1 — Agentic OS BaseAgent Refactor
+
+### Added
+- **New `kaia/agent_runtime/` package.** Introduces `BaseAgent` (supersedes
+  `BaseExpert`), `AgentContext` dataclass, `Visibility` enum, and
+  `PeerCallError`. Lays the foundation for the multi-bot Agentic OS mesh
+  described in `Docs/AGENTIC_OS/DESIGN.md`.
+- **`BaseAgent.peer_call(...)` stub.** Raises `PeerCallError` with a
+  message pointing to R-3 (Postgres LISTEN/NOTIFY bus). Establishes the
+  interface now so R-3..R-5 can land on a stable signature.
+- **`BaseAgent.handle_turn(ctx: AgentContext)`.** Context-object handler;
+  default impl delegates to the existing `handle(user, message, channel)`.
+  R-3 callers (the bus) will route through this entry point.
+- **`agent_id` property.** Stable alias for `channel_id` on every agent.
+- **`get_agent()` registry alias.** Mirrors `get_expert()`; new call sites
+  should prefer this name.
+- **Design doc.** `Docs/AGENTIC_OS/DESIGN.md` — topology, A2A protocol,
+  memory model, R-1..R-5 migration phases, locked decisions.
+- **Tests.** `tests/test_base_agent.py` — contract tests for the alias,
+  `handle_turn`, peer-call stub, and default visibility.
+
+### Changed
+- **`kaia/experts/base.py` is now a 3-line compatibility shim** that
+  re-exports `BaseAgent` as `BaseExpert`. Existing imports continue to
+  work unchanged; scheduled for removal after R-5.
+
+### Migration notes
+- No behavior change: Hevn, MakubeX, and PlaceholderExpert run identically.
+- New code SHOULD subclass `agent_runtime.BaseAgent` directly.
+- New code SHOULD use `get_agent()` over `get_expert()`.
+
 ## [2026-04-20] Hotfix — Budget Logging & Hevn Intent Detection
 
 ### Fixed

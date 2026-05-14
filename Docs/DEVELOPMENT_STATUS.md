@@ -2,6 +2,20 @@
 
 ## Phase Progress
 
+### Agentic OS Migration
+
+| Phase | Status        | Scope                                                            |
+|-------|---------------|------------------------------------------------------------------|
+| R-1   | ✅ Complete   | `BaseAgent` runtime + design doc                                |
+| R-2   | ⏳ Planned    | Concierge code split (`kaia/concierge/`)                        |
+| R-3   | ⏳ Planned    | Postgres LISTEN/NOTIFY bus + A2A protocol + peer_call demo      |
+| R-4   | ⏳ Planned    | Per-bot Telegram tokens; separate Railway services              |
+| R-5   | ⏳ Planned    | Cross-expert weekly digest via concierge; full mesh             |
+
+See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
+
+### Expert Channel Phases
+
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 1 | ✅ Complete | Core bot: 6 skills, voice, AWS deployment |
