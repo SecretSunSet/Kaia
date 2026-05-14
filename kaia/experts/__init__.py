@@ -25,6 +25,13 @@ def get_expert(channel_id: str, ai_engine: AIEngine) -> BaseExpert | None:
     return cls(ai_engine)
 
 
+def get_agent(agent_id: str, ai_engine: AIEngine) -> BaseExpert | None:
+    """Get an agent instance by agent_id. Alias for `get_expert` during the
+    BaseExpert → BaseAgent migration (R-1). New call sites should prefer
+    this name; existing `get_expert` callers continue to work."""
+    return get_expert(agent_id, ai_engine)
+
+
 def _register_defaults() -> None:
     """Register built-in experts. Called at import time."""
     from config.constants import (
