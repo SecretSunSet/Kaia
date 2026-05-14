@@ -214,3 +214,27 @@ Write paths:
 Proactive paths:
 - **Weekly digest** — scheduled on first `/hevn` visit; fires every Sunday 09:00 user TZ; delivered to Hevn's forum topic (if any) else DM.
 - **Salary allocation** — the Budget skill calls back into Hevn when an income+salary transaction is logged, only if the user has met Hevn.
+
+---
+
+## Agentic OS Migration (R-1 → R-5)
+
+KAIA is evolving from a single-bot architecture with internal "expert channels" into a **mesh of independent agent bots** coordinated by a slim concierge. See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
+
+**Current state (R-1, 2026-05-14):**
+- `kaia/agent_runtime/BaseAgent` is the new base class for all agents.
+- `experts.base.BaseExpert` is a deprecation alias re-exporting `BaseAgent` — every existing subclass (`HevnExpert`, `MakubeXExpert`, `PlaceholderExpert`) is unchanged.
+- `BaseAgent.peer_call(...)` is stubbed; raises `PeerCallError` pointing to R-3.
+- No user-visible changes.
+
+**Pending phases:**
+
+| Phase | Deliverable                                                         |
+|-------|---------------------------------------------------------------------|
+| R-2   | Concierge code split: `kaia/concierge/` owns KAIA's orchestrator   |
+| R-3   | Postgres LISTEN/NOTIFY bus + A2A protocol + visible peer calls     |
+| R-4   | Per-bot Telegram tokens; separate Railway services                 |
+| R-5   | Cross-expert weekly digest via concierge; full mesh                |
+
+The current expert channel flow described above continues to operate unchanged through R-2. R-3 introduces the first user-visible change (inter-agent messages relayed into threads).
+
