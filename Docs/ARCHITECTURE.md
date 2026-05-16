@@ -221,10 +221,15 @@ Proactive paths:
 
 KAIA is evolving from a single-bot architecture with internal "expert channels" into a **mesh of independent agent bots** coordinated by a slim concierge. See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
 
-**Current state (R-1, 2026-05-14):**
-- `kaia/agent_runtime/BaseAgent` is the new base class for all agents.
-- `experts.base.BaseExpert` is a deprecation alias re-exporting `BaseAgent` — every existing subclass (`HevnExpert`, `MakubeXExpert`, `PlaceholderExpert`) is unchanged.
-- `BaseAgent.peer_call(...)` is stubbed; raises `PeerCallError` pointing to R-3.
+**Current state (R-2, 2026-05-16):**
+- `kaia/agent_runtime/BaseAgent` is the base class for all agents (R-1).
+- `kaia/concierge/` owns KAIA's general (non-expert) conversation turn
+  (`Concierge.handle_general_turn`) and the `/start` greeting
+  (`welcome_text`). `bot/telegram_bot.py` is now a thin Telegram transport
+  over the concierge; the previously duplicated text/voice general-flow
+  block is unified.
+- Expert first-visit onboarding still lives with each expert
+  (`BaseAgent.generate_onboarding`) — unchanged by R-2.
 - No user-visible changes.
 
 **Pending phases:**

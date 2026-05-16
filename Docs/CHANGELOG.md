@@ -1,5 +1,32 @@
 # Changelog
 
+## [2026-05-16] R-2 — Agentic OS Concierge Code Split
+
+### Added
+- **New `kaia/concierge/` package.** `Concierge.handle_general_turn(...)`
+  owns the orchestration of a general (non-expert) KAIA turn: profile
+  load, history build, skill routing, conversation persistence, expert
+  suggestion, background extraction. Returns a transport-agnostic
+  `ConciergeResult`.
+- **`concierge.welcome_text()`.** Single source of truth for KAIA's
+  `/start` greeting.
+
+### Changed
+- **`bot/telegram_bot.py` is now a thin Telegram transport.** `cmd_start`,
+  `handle_message`, and `handle_voice` delegate to the concierge. The
+  general-flow block previously duplicated across the text and voice
+  handlers is unified into one `Concierge.handle_general_turn` call.
+
+### Migration notes
+- No behavior change. The text path runs the (stateful) expert-topic
+  detector; the voice path still does not (`suggest_experts=False`) —
+  the pre-R-2 divergence is preserved exactly.
+- Expert first-visit onboarding is unchanged (still expert-owned). The
+  DESIGN open question on concierge-owned onboarding remains open.
+- Background memory extraction stays fire-and-forget; it now starts a few
+  statements earlier (inside the concierge call). Non-blocking, not
+  user-visible.
+
 ## [2026-05-14] R-1 — Agentic OS BaseAgent Refactor
 
 ### Added
