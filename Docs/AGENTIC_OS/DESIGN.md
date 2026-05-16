@@ -1,7 +1,7 @@
 # Agentic OS — Design
 
-> Status: R-1 (BaseAgent refactor) — design locked, infra phases pending.
-> Owner: EJay. Last updated: 2026-05-14.
+> Status: R-2 (concierge code split) — in progress. R-1 shipped.
+> Owner: EJay. Last updated: 2026-05-16.
 
 ## Goal
 
