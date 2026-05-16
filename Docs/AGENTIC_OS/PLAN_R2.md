@@ -524,7 +524,9 @@ Run:
 ```bash
 cd /home/ejay/Kaia/kaia && python3 -m pytest tests/test_concierge.py tests/test_concierge_onboarding.py -q
 ```
-Expected: `7 passed` (4 concierge + 3 onboarding).
+Expected: `7 passed` (4 concierge + 3 onboarding). _(As shipped: a 5th
+concierge regression test for the time-tagged-history branch — invariant
+#3 — was added during code review, so the final count is `8 passed`.)_
 
 - [ ] **Step 6: Sanity-check the package imports cleanly**
 
@@ -944,7 +946,7 @@ Run:
 ```bash
 cd /home/ejay/Kaia/kaia && python3 -m pytest -q
 ```
-Expected: all pass — the 5 pre-existing `test_base_agent.py` tests plus the 7 new concierge tests (12 collected; the other `tests/test_*.py` files are empty stubs and collect nothing).
+Expected: all pass — the 5 pre-existing `test_base_agent.py` tests plus the 8 new concierge tests (5 in `test_concierge.py` + 3 in `test_concierge_onboarding.py`) = **13 passed** (the other `tests/test_*.py` files are empty stubs and collect nothing).
 
 - [ ] **Step 2: Verify the bot imports cleanly**
 
