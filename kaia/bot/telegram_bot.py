@@ -19,9 +19,6 @@ from telegram.ext import (
 
 from config.settings import get_settings
 from config.constants import (
-    ROLE_USER,
-    ROLE_ASSISTANT,
-    SKILL_CHAT,
     CHANNEL_GENERAL,
     CHANNEL_EMOJIS,
 )
@@ -30,13 +27,11 @@ from core.memory_manager import MemoryManager
 from core.skill_router import SkillRouter
 from core.channel_manager import ChannelManager
 from core.channel_memory import ChannelMemoryManager
-from core.expert_detector import detect_expert_topic, clear_suggestion_history
+from core.expert_detector import clear_suggestion_history
 from core.forum_manager import ForumManager, ForumSetupError
 from core.scheduler import start_scheduler, shutdown_scheduler, handle_snooze, handle_dismiss
 from database.queries import (
     get_or_create_user,
-    get_recent_conversations,
-    save_conversation,
     get_channel_profile,
 )
 from bot.commands import cmd_status_extended, cmd_export, cmd_reset, handle_reset_confirmation
@@ -56,10 +51,10 @@ from bot.makubex_commands import (
 from bot.middleware import check_rate_limit, track_ai_usage
 from experts import get_expert
 from experts.placeholder import PlaceholderExpert
+from concierge import Concierge, welcome_text
 from skills.briefing.handler import BriefingSkill
 from skills.reminders.handler import set_bot
 from utils.formatters import truncate
-from utils.time_utils import format_relative_time
 from utils.voice_stt import transcribe_voice
 from utils.voice_tts import text_to_speech, safe_delete, cleanup_old_files
 
@@ -72,6 +67,7 @@ skill_router = SkillRouter(ai_engine)
 channel_mgr = ChannelManager()
 channel_mem = ChannelMemoryManager()
 forum_mgr = ForumManager()
+concierge = Concierge(ai_engine, skill_router=skill_router, memory_mgr=memory_mgr)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -111,26 +107,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await get_or_create_user(tg_user.id, tg_user.username)
-    await update.message.reply_text(
-        "👋 Hi! I'm *KAIA* — your personal AI assistant.\n\n"
-        "I can help you with:\n"
-        "🗣️ Chat & advice — just talk to me naturally\n"
-        "🧠 Memory — I learn about you over time\n"
-        "⏰ Reminders — \"Remind me to take meds at 8pm daily\"\n"
-        "💰 Budget — \"Spent ₱500 on groceries\"\n"
-        "🌅 Briefing — Daily morning summary\n"
-        "🌐 Web search — \"What's the latest news about...\"\n"
-        "🎙️ Voice — Send me voice messages!\n\n"
-        "👥 *Meet my team of experts:*\n"
-        "💰 /hevn — Financial advisor\n"
-        "📈 /kazuki — Investment manager\n"
-        "⚔️ /akabane — Trading strategist\n"
-        "🔧 /makubex — Tech lead\n"
-        "Type /team to see everyone.\n\n"
-        "Just talk to me like a friend. No commands needed!\n"
-        "Type /help for more details.",
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(welcome_text(), parse_mode="Markdown")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -564,28 +541,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     return
 
         # ── General KAIA flow (DM general OR forum General topic) ────
+        # Orchestration lives in the concierge (R-2). The bot only renders.
 
-        profile_context = await memory_mgr.load_profile_context(user.id)
-        recent_convos = await get_recent_conversations(
-            user.id, limit=settings.max_conversation_history
-        )
-        tz = user.timezone or settings.default_timezone
-        history: list[dict[str, str]] = []
-        for c in recent_convos:
-            rel = format_relative_time(c.created_at, tz) if c.created_at else ""
-            content = f"[{rel}] {c.content}" if rel else c.content
-            history.append({"role": c.role, "content": content})
-
-        result = await skill_router.route(
-            user=user,
-            message=text,
-            conversation_history=history,
-            profile_context=profile_context,
-        )
-
-        await save_conversation(user.id, ROLE_USER, text, skill_used=result.skill_name)
-        await save_conversation(
-            user.id, ROLE_ASSISTANT, result.text, skill_used=result.skill_name
+        result = await concierge.handle_general_turn(
+            user, text, suggest_experts=True
         )
 
         reply_kwargs: dict = {"parse_mode": "Markdown"}
@@ -594,20 +553,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await update.message.reply_text(truncate(result.text), **reply_kwargs)
 
-        # Suggest expert if the message was handled by chat skill
-        if result.skill_name == SKILL_CHAT:
-            suggestion = detect_expert_topic(text, result.text, user_id=user.id)
-            if suggestion:
-                await update.message.reply_text(
-                    f"💡 _{suggestion['suggestion']}_",
-                    **reply_kwargs,
-                )
-
-        updated_history = history + [
-            {"role": "user", "content": text},
-            {"role": "assistant", "content": result.text},
-        ]
-        memory_mgr.run_background_extraction(user.id, updated_history)
+        # Suggest expert (text path only — preserves pre-R-2 behavior).
+        if result.suggestion:
+            await update.message.reply_text(
+                f"💡 _{result.suggestion}_",
+                **reply_kwargs,
+            )
 
         if result.ai_response:
             track_ai_usage(
@@ -706,34 +657,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
 
-        # General KAIA flow
-        profile_context = await memory_mgr.load_profile_context(user.id)
-        recent_convos = await get_recent_conversations(
-            user.id, limit=settings.max_conversation_history
+        # General KAIA flow — orchestration via concierge (R-2).
+        # suggest_experts=False: the voice path never ran the stateful
+        # expert detector pre-R-2; that divergence is preserved.
+        result = await concierge.handle_general_turn(
+            user, transcribed, suggest_experts=False
         )
-        tz = user.timezone or settings.default_timezone
-        history: list[dict[str, str]] = []
-        for c in recent_convos:
-            rel = format_relative_time(c.created_at, tz) if c.created_at else ""
-            content = f"[{rel}] {c.content}" if rel else c.content
-            history.append({"role": c.role, "content": content})
-
-        result = await skill_router.route(
-            user=user,
-            message=transcribed,
-            conversation_history=history,
-            profile_context=profile_context,
-        )
-
-        # Save conversation
-        await save_conversation(user.id, ROLE_USER, transcribed, skill_used=result.skill_name)
-        await save_conversation(user.id, ROLE_ASSISTANT, result.text, skill_used=result.skill_name)
 
         # Send text response (in the same topic if applicable)
         await update.message.reply_text(truncate(result.text), **reply_kwargs)
 
-        # Optionally reply with voice
-        if _should_reply_with_voice(profile_context):
+        # Optionally reply with voice — keyed off the same profile_context
+        # the turn was routed with (single profile load).
+        if _should_reply_with_voice(result.profile_context):
             tts_path = await text_to_speech(result.text, voice=settings.tts_voice)
             if tts_path:
                 voice_kwargs: dict = {}
@@ -741,13 +677,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     voice_kwargs["message_thread_id"] = topic_id
                 with open(tts_path, "rb") as audio:
                     await update.message.reply_voice(voice=audio, **voice_kwargs)
-
-        # Background extraction
-        updated_history = history + [
-            {"role": "user", "content": transcribed},
-            {"role": "assistant", "content": result.text},
-        ]
-        memory_mgr.run_background_extraction(user.id, updated_history)
 
         if result.ai_response:
             track_ai_usage(
