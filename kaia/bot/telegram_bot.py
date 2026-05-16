@@ -20,7 +20,6 @@ from telegram.ext import (
 from config.settings import get_settings
 from config.constants import (
     CHANNEL_GENERAL,
-    CHANNEL_EMOJIS,
 )
 from core.ai_engine import AIEngine
 from core.memory_manager import MemoryManager
@@ -678,6 +677,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 with open(tts_path, "rb") as audio:
                     await update.message.reply_voice(voice=audio, **voice_kwargs)
 
+        # Voice path keeps no "msg handled" log — pre-R-2 behavior (see handle_message).
         if result.ai_response:
             track_ai_usage(
                 result.ai_response.input_tokens,
