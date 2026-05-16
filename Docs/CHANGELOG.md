@@ -1,5 +1,63 @@
 # Changelog
 
+## [2026-05-16] R-2 — Agentic OS Concierge Code Split
+
+### Added
+- **New `kaia/concierge/` package.** `Concierge.handle_general_turn(...)`
+  owns the orchestration of a general (non-expert) KAIA turn: profile
+  load, history build, skill routing, conversation persistence, expert
+  suggestion, background extraction. Returns a transport-agnostic
+  `ConciergeResult`.
+- **`concierge.welcome_text()`.** Single source of truth for KAIA's
+  `/start` greeting.
+
+### Changed
+- **`bot/telegram_bot.py` is now a thin Telegram transport.** `cmd_start`,
+  `handle_message`, and `handle_voice` delegate to the concierge. The
+  general-flow block previously duplicated across the text and voice
+  handlers is unified into one `Concierge.handle_general_turn` call.
+
+### Migration notes
+- No behavior change. The text path runs the (stateful) expert-topic
+  detector; the voice path still does not (`suggest_experts=False`) —
+  the pre-R-2 divergence is preserved exactly.
+- Expert first-visit onboarding is unchanged (still expert-owned). The
+  DESIGN open question on concierge-owned onboarding remains open.
+- Background memory extraction stays fire-and-forget; it now starts a few
+  statements earlier (inside the concierge call). Non-blocking, not
+  user-visible.
+
+## [2026-05-14] R-1 — Agentic OS BaseAgent Refactor
+
+### Added
+- **New `kaia/agent_runtime/` package.** Introduces `BaseAgent` (supersedes
+  `BaseExpert`), `AgentContext` dataclass, `Visibility` enum, and
+  `PeerCallError`. Lays the foundation for the multi-bot Agentic OS mesh
+  described in `Docs/AGENTIC_OS/DESIGN.md`.
+- **`BaseAgent.peer_call(...)` stub.** Raises `PeerCallError` with a
+  message pointing to R-3 (Postgres LISTEN/NOTIFY bus). Establishes the
+  interface now so R-3..R-5 can land on a stable signature.
+- **`BaseAgent.handle_turn(ctx: AgentContext)`.** Context-object handler;
+  default impl delegates to the existing `handle(user, message, channel)`.
+  R-3 callers (the bus) will route through this entry point.
+- **`agent_id` property.** Stable alias for `channel_id` on every agent.
+- **`get_agent()` registry alias.** Mirrors `get_expert()`; new call sites
+  should prefer this name.
+- **Design doc.** `Docs/AGENTIC_OS/DESIGN.md` — topology, A2A protocol,
+  memory model, R-1..R-5 migration phases, locked decisions.
+- **Tests.** `tests/test_base_agent.py` — contract tests for the alias,
+  `handle_turn`, peer-call stub, and default visibility.
+
+### Changed
+- **`kaia/experts/base.py` is now a 3-line compatibility shim** that
+  re-exports `BaseAgent` as `BaseExpert`. Existing imports continue to
+  work unchanged; scheduled for removal after R-5.
+
+### Migration notes
+- No behavior change: Hevn, MakubeX, and PlaceholderExpert run identically.
+- New code SHOULD subclass `agent_runtime.BaseAgent` directly.
+- New code SHOULD use `get_agent()` over `get_expert()`.
+
 ## [2026-04-20] Hotfix — Budget Logging & Hevn Intent Detection
 
 ### Fixed
