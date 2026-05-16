@@ -6,7 +6,8 @@ greeting. Transport-agnostic: nothing here imports ``telegram``.
 
 from __future__ import annotations
 
+from concierge.concierge import Concierge
 from concierge.onboarding import welcome_text
 from concierge.result import ConciergeResult
 
-__all__ = ["ConciergeResult", "welcome_text"]
+__all__ = ["Concierge", "ConciergeResult", "welcome_text"]
