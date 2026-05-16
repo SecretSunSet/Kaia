@@ -51,6 +51,7 @@ async def test_general_turn_routes_and_returns_result():
     assert save.await_args_list[0].args[1] == ROLE_USER
     assert save.await_args_list[1].args[1] == ROLE_ASSISTANT
     assert save.await_args_list[0].kwargs["skill_used"] == SKILL_CHAT
+    assert save.await_args_list[1].kwargs["skill_used"] == SKILL_CHAT
     # Invariant #9: extraction fired (fire-and-forget).
     memory.run_background_extraction.assert_called_once()
 
@@ -65,7 +66,7 @@ async def test_suggestion_only_when_chat_and_suggest_enabled():
                return_value={"channel_id": "hevn", "suggestion": "try /hevn"}) as det:
         result = await c.handle_general_turn(_user(), "budget help", suggest_experts=True)
     assert result.suggestion == "try /hevn"
-    det.assert_called_once()
+    det.assert_called_once_with("budget help", "r", user_id="u-1")
 
 
 @pytest.mark.asyncio
@@ -91,3 +92,21 @@ async def test_no_suggestion_for_non_chat_skill():
         result = await c.handle_general_turn(_user(), "remind me", suggest_experts=True)
     assert result.suggestion is None
     det.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_history_entry_is_time_tagged_when_created_at_present():
+    """Invariant #3: rows with created_at are prefixed [<relative time>]."""
+    sr = SkillResult(text="r", skill_name=SKILL_CHAT)
+    c, router, _ = _make_concierge(sr)
+    dated = _convo(ROLE_USER, "older message")
+    dated.created_at = object()  # truthy sentinel; format is patched below
+    with patch("concierge.concierge.get_recent_conversations",
+               AsyncMock(return_value=[dated])), \
+         patch("concierge.concierge.save_conversation", AsyncMock()), \
+         patch("concierge.concierge.detect_expert_topic", return_value=None), \
+         patch("concierge.concierge.format_relative_time", return_value="2 days ago"):
+        await c.handle_general_turn(_user(), "hi", suggest_experts=True)
+    sent_history = router.route.await_args.kwargs["conversation_history"]
+    assert sent_history[0]["content"] == "[2 days ago] older message"
+    assert sent_history[0]["role"] == ROLE_USER

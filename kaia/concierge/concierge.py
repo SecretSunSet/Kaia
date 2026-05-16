@@ -38,7 +38,7 @@ class Concierge:
         skill_router: SkillRouter,
         memory_mgr: MemoryManager,
     ) -> None:
-        self._ai = ai_engine
+        self._ai = ai_engine  # reserved for R-3 direct AI calls (bus entry point)
         self._router = skill_router
         self._memory = memory_mgr
 
@@ -93,6 +93,8 @@ class Concierge:
             if hit:
                 suggestion = hit["suggestion"]
 
+        # NOTE: route() gets time-tagged history; extraction gets raw
+        # message/text. Intentional — verbatim from pre-R-2 behavior.
         updated_history = history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": result.text},
