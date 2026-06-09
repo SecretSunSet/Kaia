@@ -70,6 +70,14 @@ class Settings(BaseSettings):
         True, description="Enable Telegram Forum Topics support (dual-mode routing)"
     )
 
+    # R-3: Postgres bus sidecar
+    # Supabase exposes this at Project Settings → Database → Connection String.
+    # Use the connection pooler URL on port 6543 if available, else direct 5432.
+    database_url: str | None = Field(None, description="Postgres DSN for the asyncpg bus sidecar (R-3)")
+
+    # Default timeout (seconds) for BaseAgent.peer_call (R-3).
+    r3_peer_call_timeout_seconds: float = Field(30.0, description="Default timeout for peer_call RPC (R-3)")
+
 
 def get_settings() -> Settings:
     """Create and return a cached Settings instance."""
