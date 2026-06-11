@@ -114,3 +114,59 @@ def build_hevn_system_prompt(
         budget_summary=budget_summary or "(no recent budget data)",
         goals_summary=goals_summary or "(no active goals yet)",
     )
+
+
+def build_classifier_prompt(message: str) -> str:
+    """Classifier prompt: does the user's question require consulting MakubeX
+    (smart-contract / DeFi expertise)? Returns a small JSON decision."""
+    return f"""\
+You are a fast, cheap router. Given a user's question to Hevn (a \
+financial advisor), decide whether Hevn needs to consult MakubeX (the \
+tech lead) for smart-contract / DeFi / crypto-security expertise \
+BEFORE Hevn can answer well.
+
+Reply with ONLY a JSON object, no prose. Schema:
+
+{{
+  "needs_consult": true | false,
+  "target": "makubex",            // if needs_consult is true
+  "intent": "smart_contract_risk", // if needs_consult is true
+  "payload": {{
+    "protocol": "...",     // e.g. "Aave", "Compound", "Uniswap"
+    "asset": "...",        // e.g. "USDC", "ETH"
+    "context": "..."       // brief context (1 sentence)
+  }}
+}}
+
+If the question is general personal finance (budgeting, saving, debt, \
+traditional investments), set "needs_consult": false and omit the other \
+fields.
+
+USER QUESTION: {message}
+"""
+
+
+def build_synthesis_prompt(profile_context: str, original_message: str, peer_reply: dict) -> str:
+    """Synthesis prompt: Hevn re-prompted with the peer's reply payload,
+    asked to produce a financial recommendation."""
+    import json as _json
+    reply_json = _json.dumps(peer_reply, indent=2)
+    return f"""\
+You are Hevn, KAIA's financial advisor. The user asked:
+
+  "{original_message}"
+
+You consulted MakubeX (KAIA's tech lead) for a smart-contract / DeFi \
+risk read. MakubeX's structured reply:
+
+{reply_json}
+
+USER PROFILE:
+{profile_context if profile_context else "No profile data yet."}
+
+Synthesize a financial recommendation for the user. Reference MakubeX's \
+read where relevant, but speak in YOUR voice (Hevn, the financial \
+advisor). Be specific to the user's profile (income, debt, savings, \
+emergency fund). Default currency is Philippine Peso (₱). Be warm but \
+focused. Use markdown sparingly.
+"""

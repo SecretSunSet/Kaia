@@ -6,6 +6,7 @@ import asyncio
 
 from loguru import logger
 
+from agent_runtime.base_agent import PeerCallError
 from config.constants import CURRENCY_SYMBOLS
 from core.ai_engine import AIEngine, build_message_history
 from database import queries as db
@@ -51,11 +52,149 @@ class HevnExpert(BaseExpert):
         message: str,
         channel: Channel,
     ) -> SkillResult:
-        """Route the message through Hevn's pipeline."""
-        currency = user.currency or "PHP"
+        """Route the message through Hevn's 3-step pipeline (R-3).
+
+        Step 1: Classifier — does this question need a MakubeX consult?
+        Step 2: If yes, peer_call MakubeX; on failure fall back to _direct_answer.
+        Step 3: If consult succeeded, synthesize; otherwise _direct_answer.
+        """
+        # Step 1: Classify whether MakubeX consult is needed
+        decision = await self._classify_consult_intent(message)
+
+        if not decision.get("needs_consult"):
+            # No consult needed — use the direct persona-driven path
+            return await self._direct_answer(user, message, channel)
+
+        # Step 2: Consult peer with graceful fallback
+        try:
+            reply = await self.peer_call(
+                decision["target"],
+                decision["intent"],
+                decision["payload"],
+                user_id=user.id,
+            )
+        except PeerCallError as exc:
+            logger.warning(
+                "Hevn peer_call({}, {}) failed: {}",
+                decision["target"],
+                decision["intent"],
+                exc,
+            )
+            direct = await self._direct_answer(user, message, channel)
+            return SkillResult(
+                text=direct.text + "\n\n_(I tried to consult MakubeX but couldn't reach them in time — answering from my own read.)_",
+                skill_name=direct.skill_name,
+                ai_response=direct.ai_response,
+            )
+
+        # Step 3: Synthesize with peer reply
+        return await self._synthesize_with_consult(user, message, channel, reply)
+
+    # ── R-3 helpers ─────────────────────────────────────────────────
+
+    async def _classify_consult_intent(self, message: str) -> dict:
+        """Step 1 classifier: should Hevn consult MakubeX before answering?
+
+        Returns a dict with at minimum {"needs_consult": bool}.
+        Uses a JSON-fence-tolerant extractor (Claude sometimes wraps JSON in
+        ```json fences despite instruction).  Falls back to
+        {"needs_consult": False} on any parse failure (fail-safe).
+        """
+        import json as _json
+        from experts.hevn.prompts import build_classifier_prompt
+        resp = await self.ai.chat(
+            system_prompt=build_classifier_prompt(message),
+            messages=[{"role": "user", "content": message}],
+        )
+        try:
+            raw = resp.text.strip()
+            start, end = raw.find("{"), raw.rfind("}")
+            if start == -1 or end <= start:
+                return {"needs_consult": False}
+            decision = _json.loads(raw[start:end + 1])
+            if not isinstance(decision, dict):
+                return {"needs_consult": False}
+            return decision
+        except (ValueError, TypeError):
+            return {"needs_consult": False}
+
+    async def _direct_answer(self, user, message: str, channel) -> SkillResult:
+        """Direct persona-driven answer — the R-1/R-2 path.
+
+        Loads profile context, builds Hevn's system prompt, calls AI,
+        saves messages and returns a SkillResult with the channel footer.
+        Used by both the no-consult branch and the peer_call fallback branch.
+        """
+        profile_context = await self._channel_mem.load_combined_context(
+            user.id, channel.channel_id
+        )
+        system_prompt = build_hevn_system_prompt(
+            user_context=profile_context,
+            budget_summary="",
+            goals_summary="",
+            current_gap="",
+        )
+        resp = await self.ai.chat(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": message}],
+        )
+        await self.save_messages(user.id, channel.channel_id, message, resp.text)
+        footer = self.format_response_footer(channel)
+        return SkillResult(
+            text=resp.text + footer,
+            skill_name=self.channel_id,
+            ai_response=resp,
+        )
+
+    async def _synthesize_with_consult(
+        self, user, message: str, channel, peer_reply: dict
+    ) -> SkillResult:
+        """Step 3: re-prompt Hevn with MakubeX's structured reply to produce
+        a financial recommendation that incorporates the DeFi risk read."""
+        from experts.hevn.prompts import build_synthesis_prompt
+        profile_context = await self._channel_mem.load_combined_context(
+            user.id, channel.channel_id
+        )
+        system_prompt = build_synthesis_prompt(profile_context, message, peer_reply)
+        resp = await self.ai.chat(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": message}],
+        )
+        await self.save_messages(user.id, channel.channel_id, message, resp.text)
+        footer = self.format_response_footer(channel)
+        return SkillResult(
+            text=resp.text + footer,
+            skill_name=self.channel_id,
+            ai_response=resp,
+        )
+
+    # ── Preserved R-1/R-2 deterministic routing ─────────────────────
+    # Called by the bot layer (or subclasses) when a deterministic skill
+    # match is needed BEFORE the R-3 classifier.  Not invoked from handle()
+    # in R-3 to keep the 3-step orchestrator testable in isolation.
+
+    async def _handle_routed_response(
+        self,
+        user: User,
+        message: str,
+        channel: Channel,
+    ) -> SkillResult | None:
+        """Try deterministic routes (first-visit, health, goals, bills, coaching).
+
+        Returns a SkillResult if a route matched, or None to signal the caller
+        to fall through to the 3-step orchestrator.
+        """
+        currency = getattr(user, "currency", None) or "PHP"
 
         # First-visit onboarding
-        if await self._channel_mgr.is_first_visit(user.id, channel.channel_id):
+        try:
+            is_first = await self._channel_mgr.is_first_visit(
+                user.id, channel.channel_id
+            )
+        except Exception:
+            is_first = False
+
+        if is_first:
             combined_context = await self._channel_mem.load_combined_context(
                 user.id, channel.channel_id
             )
@@ -64,7 +203,6 @@ class HevnExpert(BaseExpert):
             await self.save_messages(
                 user.id, channel.channel_id, message, onboarding
             )
-            # Register the weekly digest now that the user has met Hevn.
             try:
                 from core.scheduler import schedule_hevn_weekly_digest
                 await schedule_hevn_weekly_digest(
