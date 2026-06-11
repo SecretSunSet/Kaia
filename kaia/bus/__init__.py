@@ -8,5 +8,6 @@ class owns RPC correlation + timeouts; nothing here imports telegram.
 from __future__ import annotations
 
 from bus.envelope import Envelope, Visibility
+from bus.transport import BusTransport, InMemoryBusTransport
 
-__all__ = ["Envelope", "Visibility"]
+__all__ = ["Envelope", "Visibility", "BusTransport", "InMemoryBusTransport"]
