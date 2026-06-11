@@ -119,70 +119,12 @@ class HevnExpert(BaseExpert):
             return {"needs_consult": False}
 
     async def _direct_answer(self, user, message: str, channel) -> SkillResult:
-        """Direct persona-driven answer — the R-1/R-2 path.
+        """Full R-1/R-2 routing path — verbatim pre-Task-10 handle() body.
 
-        Loads profile context, builds Hevn's system prompt, calls AI,
-        saves messages and returns a SkillResult with the channel footer.
+        Runs first-visit onboarding, intent classification, deterministic skill
+        dispatch (health, goals, bills, coaching), and falls through to a
+        persona-driven response for general/market/education intents.
         Used by both the no-consult branch and the peer_call fallback branch.
-        """
-        profile_context = await self._channel_mem.load_combined_context(
-            user.id, channel.channel_id
-        )
-        system_prompt = build_hevn_system_prompt(
-            user_context=profile_context,
-            budget_summary="",
-            goals_summary="",
-            current_gap="",
-        )
-        resp = await self.ai.chat(
-            system_prompt=system_prompt,
-            messages=[{"role": "user", "content": message}],
-        )
-        await self.save_messages(user.id, channel.channel_id, message, resp.text)
-        footer = self.format_response_footer(channel)
-        return SkillResult(
-            text=resp.text + footer,
-            skill_name=self.channel_id,
-            ai_response=resp,
-        )
-
-    async def _synthesize_with_consult(
-        self, user, message: str, channel, peer_reply: dict
-    ) -> SkillResult:
-        """Step 3: re-prompt Hevn with MakubeX's structured reply to produce
-        a financial recommendation that incorporates the DeFi risk read."""
-        from experts.hevn.prompts import build_synthesis_prompt
-        profile_context = await self._channel_mem.load_combined_context(
-            user.id, channel.channel_id
-        )
-        system_prompt = build_synthesis_prompt(profile_context, message, peer_reply)
-        resp = await self.ai.chat(
-            system_prompt=system_prompt,
-            messages=[{"role": "user", "content": message}],
-        )
-        await self.save_messages(user.id, channel.channel_id, message, resp.text)
-        footer = self.format_response_footer(channel)
-        return SkillResult(
-            text=resp.text + footer,
-            skill_name=self.channel_id,
-            ai_response=resp,
-        )
-
-    # ── Preserved R-1/R-2 deterministic routing ─────────────────────
-    # Called by the bot layer (or subclasses) when a deterministic skill
-    # match is needed BEFORE the R-3 classifier.  Not invoked from handle()
-    # in R-3 to keep the 3-step orchestrator testable in isolation.
-
-    async def _handle_routed_response(
-        self,
-        user: User,
-        message: str,
-        channel: Channel,
-    ) -> SkillResult | None:
-        """Try deterministic routes (first-visit, health, goals, bills, coaching).
-
-        Returns a SkillResult if a route matched, or None to signal the caller
-        to fall through to the 3-step orchestrator.
         """
         currency = getattr(user, "currency", None) or "PHP"
 
@@ -257,6 +199,29 @@ class HevnExpert(BaseExpert):
             skill_name=channel.channel_id,
             ai_response=ai_response,
         )
+
+    async def _synthesize_with_consult(
+        self, user, message: str, channel, peer_reply: dict
+    ) -> SkillResult:
+        """Step 3: re-prompt Hevn with MakubeX's structured reply to produce
+        a financial recommendation that incorporates the DeFi risk read."""
+        from experts.hevn.prompts import build_synthesis_prompt
+        profile_context = await self._channel_mem.load_combined_context(
+            user.id, channel.channel_id
+        )
+        system_prompt = build_synthesis_prompt(profile_context, message, peer_reply)
+        resp = await self.ai.chat(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": message}],
+        )
+        await self.save_messages(user.id, channel.channel_id, message, resp.text)
+        footer = self.format_response_footer(channel)
+        return SkillResult(
+            text=resp.text + footer,
+            skill_name=self.channel_id,
+            ai_response=resp,
+        )
+
 
     # ── Specialized routes ──────────────────────────────────────────
 
