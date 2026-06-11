@@ -47,14 +47,13 @@ async def test_handle_turn_delegates_to_handle():
 
 
 @pytest.mark.asyncio
-async def test_peer_call_raises_until_r3_lands():
+async def test_peer_call_without_bus_raises():
+    """Without bus injection, peer_call must raise — fail-loud."""
+    from uuid import uuid4
+    BaseAgent.set_bus(None)
     agent = _agent()
-    with pytest.raises(PeerCallError) as exc:
-        await agent.peer_call("makubex", "consult", {"q": "x"})
-
-    msg = str(exc.value)
-    assert "R-3" in msg
-    assert "makubex" in msg
+    with pytest.raises(PeerCallError):
+        await agent.peer_call("makubex", "consult", {"q": "x"}, user_id=uuid4())
 
 
 def test_visibility_default_is_user_visible():
