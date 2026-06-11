@@ -57,7 +57,7 @@ def test_envelope_reply_to_round_trip():
 
 
 def test_envelope_rejects_unknown_kind():
-    with pytest.raises((ValueError, TypeError)):
+    with pytest.raises(ValueError, match="Envelope.kind must be one of"):
         _sample(kind="invalid")
 
 
@@ -65,5 +65,29 @@ def test_envelope_rejects_missing_required_field():
     """from_dict must raise on missing required keys."""
     d = _sample().to_dict()
     del d["from_agent"]
-    with pytest.raises((KeyError, TypeError, ValueError)):
+    with pytest.raises(KeyError, match="from_dict missing required key"):
+        Envelope.from_dict(d)
+
+
+def test_envelope_round_trip_internal_visibility_and_error_kind():
+    """Cover the Visibility.INTERNAL value and kind='error' branch in to_dict/from_dict."""
+    env = _sample(
+        visibility=Visibility.INTERNAL,
+        kind="error",
+        payload={"error": "no handler for intent 'foo'"},
+        reply_to=uuid4(),
+    )
+    d = env.to_dict()
+    assert d["visibility"] == "internal"
+    assert d["kind"] == "error"
+    restored = Envelope.from_dict(d)
+    assert restored == env
+    assert restored.visibility is Visibility.INTERNAL
+
+
+def test_envelope_from_dict_rejects_invalid_visibility():
+    """from_dict must reject an unknown visibility string (enum-guarded)."""
+    d = _sample().to_dict()
+    d["visibility"] = "bogus"
+    with pytest.raises(ValueError):
         Envelope.from_dict(d)

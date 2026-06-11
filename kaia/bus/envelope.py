@@ -60,8 +60,8 @@ class Envelope:
             "intent": self.intent,
             "visibility": self.visibility.value,
             "kind": self.kind,
-            "payload": self.payload,
             "reply_to": str(self.reply_to) if self.reply_to is not None else None,
+            "payload": self.payload,
             "created_at": self.created_at.isoformat(),
         }
 
