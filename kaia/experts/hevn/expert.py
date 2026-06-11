@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from loguru import logger
 
@@ -18,7 +19,11 @@ from experts.hevn.parser import (
     parse_bill_creation,
     parse_goal_creation,
 )
-from experts.hevn.prompts import build_hevn_system_prompt
+from experts.hevn.prompts import (
+    build_classifier_prompt,
+    build_hevn_system_prompt,
+    build_synthesis_prompt,
+)
 from experts.hevn.skills.bills_tracker import BillsTrackerSkill
 from experts.hevn.skills.budget_coaching import BudgetCoachingSkill
 from experts.hevn.skills.education import EducationSkill
@@ -65,6 +70,17 @@ class HevnExpert(BaseExpert):
             # No consult needed — use the direct persona-driven path
             return await self._direct_answer(user, message, channel)
 
+        # Defensive: classifier may emit {"needs_consult": true} but omit
+        # target/intent/payload. Subscript access would KeyError out of the
+        # except PeerCallError catch. Validate up-front; fall through to
+        # _direct_answer on malformed classifier output.
+        if not all(k in decision for k in ("target", "intent", "payload")):
+            logger.warning(
+                "Hevn classifier returned needs_consult=true but missing keys: {}",
+                decision,
+            )
+            return await self._direct_answer(user, message, channel)
+
         # Step 2: Consult peer with graceful fallback
         try:
             reply = await self.peer_call(
@@ -82,7 +98,7 @@ class HevnExpert(BaseExpert):
             )
             direct = await self._direct_answer(user, message, channel)
             return SkillResult(
-                text=direct.text + "\n\n_(I tried to consult MakubeX but couldn't reach them in time — answering from my own read.)_",
+                text=direct.text + "\n\n_(I tried to consult MakubeX on this one but couldn't get a response — answering from my own read.)_",
                 skill_name=direct.skill_name,
                 ai_response=direct.ai_response,
             )
@@ -100,8 +116,6 @@ class HevnExpert(BaseExpert):
         ```json fences despite instruction).  Falls back to
         {"needs_consult": False} on any parse failure (fail-safe).
         """
-        import json as _json
-        from experts.hevn.prompts import build_classifier_prompt
         resp = await self.ai.chat(
             system_prompt=build_classifier_prompt(message),
             messages=[{"role": "user", "content": message}],
@@ -111,7 +125,7 @@ class HevnExpert(BaseExpert):
             start, end = raw.find("{"), raw.rfind("}")
             if start == -1 or end <= start:
                 return {"needs_consult": False}
-            decision = _json.loads(raw[start:end + 1])
+            decision = json.loads(raw[start:end + 1])
             if not isinstance(decision, dict):
                 return {"needs_consult": False}
             return decision
@@ -205,7 +219,6 @@ class HevnExpert(BaseExpert):
     ) -> SkillResult:
         """Step 3: re-prompt Hevn with MakubeX's structured reply to produce
         a financial recommendation that incorporates the DeFi risk read."""
-        from experts.hevn.prompts import build_synthesis_prompt
         profile_context = await self._channel_mem.load_combined_context(
             user.id, channel.channel_id
         )
@@ -215,6 +228,9 @@ class HevnExpert(BaseExpert):
             messages=[{"role": "user", "content": message}],
         )
         await self.save_messages(user.id, channel.channel_id, message, resp.text)
+        # R-3: extract memory from the synthesized response so DeFi consults
+        # contribute to the user's profile, same as every other Hevn answer.
+        self._fire_extraction(user.id, channel.channel_id, message, resp.text)
         footer = self.format_response_footer(channel)
         return SkillResult(
             text=resp.text + footer,

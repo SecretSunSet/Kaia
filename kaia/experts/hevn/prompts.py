@@ -129,7 +129,7 @@ Reply with ONLY a JSON object, no prose. Schema:
 
 {{
   "needs_consult": true | false,
-  "target": "makubex",            // if needs_consult is true
+  "target": "makubex",            // MUST be exactly "makubex" (the only available peer in R-3)
   "intent": "smart_contract_risk", // if needs_consult is true
   "payload": {{
     "protocol": "...",     // e.g. "Aave", "Compound", "Uniswap"
@@ -149,8 +149,8 @@ USER QUESTION: {message}
 def build_synthesis_prompt(profile_context: str, original_message: str, peer_reply: dict) -> str:
     """Synthesis prompt: Hevn re-prompted with the peer's reply payload,
     asked to produce a financial recommendation."""
-    import json as _json
-    reply_json = _json.dumps(peer_reply, indent=2)
+    import json
+    reply_json = json.dumps(peer_reply, indent=2)
     return f"""\
 You are Hevn, KAIA's financial advisor. The user asked:
 
