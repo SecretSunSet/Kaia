@@ -41,6 +41,10 @@ class PostgresBusTransport:
         self._channel_queues: dict[str, list[asyncio.Queue[str]]] = {}
 
     async def start(self) -> None:
+        # Bus uses 2 DB connections at minimum: 1 pool conn (writes/fetches)
+        # + 1 dedicated listener (LISTEN/NOTIFY). Pool sizing: max_size=4
+        # is comfortable for the demo's traffic profile; bump if peer_call
+        # concurrency exceeds 4.
         self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=4)
         self._listener_conn = await asyncpg.connect(self._dsn)
         logger.info("PostgresBusTransport started ({})", self._redact_dsn())
@@ -75,9 +79,10 @@ class PostgresBusTransport:
         finally:
             self._channel_queues.get(channel, []).remove(q)
             if not self._channel_queues.get(channel):
-                await self._listener_conn.remove_listener(
-                    self._sanitize(channel), self._on_notify
-                )
+                if self._listener_conn is not None:
+                    await self._listener_conn.remove_listener(
+                        self._sanitize(channel), self._on_notify
+                    )
 
     def _on_notify(self, conn, pid, channel, payload):
         """asyncpg LISTEN callback — fan out to every queue subscribed to channel."""
@@ -124,6 +129,6 @@ class PostgresBusTransport:
     def _redact_dsn(self) -> str:
         try:
             head, _, tail = self._dsn.partition("@")
-            return f"{head.split(':')[0]}:***@{tail}"
+            return f"{head.rsplit(':', 1)[0]}:***@{tail}"
         except Exception:
             return "<dsn>"
