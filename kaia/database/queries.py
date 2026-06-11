@@ -66,6 +66,25 @@ async def get_or_create_user(telegram_id: int, username: str | None = None) -> U
     )
 
 
+async def get_user_by_id(user_id) -> User | None:
+    """Look up a user by internal UUID (not telegram_id). Used by the R-3 bus
+    relay to map envelope.user_id → telegram_id for outbound rendering."""
+    sb = get_supabase()
+    result = sb.table("users").select("*").eq("id", str(user_id)).limit(1).execute()
+    if not result.data:
+        return None
+    row = result.data[0]
+    return User(
+        id=row["id"],
+        telegram_id=row["telegram_id"],
+        username=row.get("username"),
+        timezone=row.get("timezone", "Asia/Manila"),
+        currency=row.get("currency", "PHP"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
+
+
 # ── Profile ──────────────────────────────────────────────────────────
 
 async def get_user_profile(user_id: str) -> list[ProfileEntry]:
