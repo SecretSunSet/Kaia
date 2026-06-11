@@ -1,6 +1,6 @@
 -- 006_agent_bus.sql — Agentic OS R-3: inter-agent bus tables.
 
-CREATE TABLE agent_conversations (
+CREATE TABLE IF NOT EXISTS agent_conversations (
   conversation_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   started_by_agent  VARCHAR(50)  NOT NULL,
@@ -10,10 +10,10 @@ CREATE TABLE agent_conversations (
   closed_at         TIMESTAMPTZ
 );
 
-CREATE INDEX idx_agent_conv_user
+CREATE INDEX IF NOT EXISTS idx_agent_conv_user
   ON agent_conversations(user_id, created_at DESC);
 
-CREATE TABLE agent_messages (
+CREATE TABLE IF NOT EXISTS agent_messages (
   envelope_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES agent_conversations(conversation_id) ON DELETE CASCADE,
   from_agent      VARCHAR(50)  NOT NULL,
@@ -27,9 +27,19 @@ CREATE TABLE agent_messages (
   created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_agent_msg_conv
+CREATE INDEX IF NOT EXISTS idx_agent_msg_conv
   ON agent_messages(conversation_id, created_at);
 
-CREATE INDEX idx_agent_msg_to_pending
+CREATE INDEX IF NOT EXISTS idx_agent_msg_to_pending
   ON agent_messages(to_agent, created_at DESC)
   WHERE kind = 'request';
+
+-- ── Row-Level Security ─────────────────────────────────────────────
+ALTER TABLE agent_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_all" ON agent_conversations;
+DROP POLICY IF EXISTS "service_role_all" ON agent_messages;
+
+CREATE POLICY "service_role_all" ON agent_conversations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all" ON agent_messages FOR ALL USING (true) WITH CHECK (true);
