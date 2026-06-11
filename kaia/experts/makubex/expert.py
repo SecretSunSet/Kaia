@@ -54,22 +54,36 @@ class MakubeXExpert(BaseExpert):
         # R-3: MakubeX answers smart_contract_risk consults from Hevn.
         self.register_peer_intent("smart_contract_risk", self.handle_smart_contract_risk)
 
+    @staticmethod
+    def _sanitize_payload_field(value: str, max_len: int = 200) -> str:
+        """Neutralize newline-based prompt injection from cross-agent payloads."""
+        if not isinstance(value, str):
+            value = str(value)
+        return value.replace("\n", " ").replace("\r", " ").strip()[:max_len]
+
     async def handle_smart_contract_risk(self, envelope: Envelope) -> dict:
         """Inbound peer-intent handler. Returns a structured risk assessment.
 
         On AI / JSON-parse failure, returns a dict containing an "error" key
         rather than raising — keeps the bus dispatcher healthy.
         """
-        protocol = envelope.payload.get("protocol", "")
-        asset = envelope.payload.get("asset", "")
-        context = envelope.payload.get("context", "")
+        protocol = self._sanitize_payload_field(envelope.payload.get("protocol", ""))
+        asset = self._sanitize_payload_field(envelope.payload.get("asset", ""))
+        context = self._sanitize_payload_field(envelope.payload.get("context", ""))
         system_prompt = build_smart_contract_risk_prompt(protocol, asset, context)
         try:
             resp = await self.ai.chat(
                 system_prompt=system_prompt,
-                messages=[{"role": "user", "content": f"Assess risk for {protocol} ({asset})."}],
+                messages=[{"role": "user", "content": "Begin assessment."}],
             )
-            parsed = json.loads(resp.text)
+            # Extract the JSON object even if the model wrapped it in
+            # ```json``` fences or prefaced with prose (common Claude
+            # behavior despite the "no markdown" instruction).
+            raw = resp.text.strip()
+            start, end = raw.find("{"), raw.rfind("}")
+            if start == -1 or end <= start:
+                raise ValueError("no JSON object in AI response")
+            parsed = json.loads(raw[start:end + 1])
             if not isinstance(parsed, dict):
                 raise ValueError("AI returned non-object JSON")
             return parsed

@@ -78,4 +78,64 @@ async def test_smart_contract_risk_handles_malformed_ai_output():
     reply = await handler(_envelope({"protocol": "X", "asset": "Y", "context": "z"}))
 
     assert isinstance(reply, dict)
-    assert "error" in reply or "summary" in reply
+    assert "error" in reply
+    assert reply.get("rating") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_smart_contract_risk_extracts_json_from_fenced_response():
+    """Claude often wraps JSON in ```json fences; the handler must still extract it."""
+    fenced = (
+        "Here's the assessment:\n\n"
+        "```json\n"
+        '{"summary": "ok", "audit_status": "yes", "tvl_signal": "high", '
+        '"depeg_history": "n/a", "oracle_bridge_risk": "low", '
+        '"rating": "low", "caveats": []}\n'
+        "```\n"
+    )
+    ai = MagicMock()
+    ai.chat = AsyncMock(return_value=MagicMock(text=fenced))
+    bus = MagicMock()
+    bus.register_handler = MagicMock()
+    BaseAgent.set_bus(bus)
+    expert = MakubeXExpert(ai_engine=ai)
+    risk_call = next(c for c in bus.register_handler.call_args_list if c.args[1] == "smart_contract_risk")
+    handler = risk_call.args[2]
+    reply = await handler(_envelope({"protocol": "Aave", "asset": "USDC", "context": "test"}))
+    assert reply["rating"] == "low"
+    assert reply["summary"] == "ok"
+    assert "error" not in reply
+
+
+@pytest.mark.asyncio
+async def test_smart_contract_risk_rejects_json_array_response():
+    """If the AI returns a JSON array (not object), the isinstance(parsed, dict) guard
+    fires and the error path returns the standard error dict."""
+    ai = MagicMock()
+    ai.chat = AsyncMock(return_value=MagicMock(text='[1, 2, 3]'))
+    bus = MagicMock()
+    bus.register_handler = MagicMock()
+    BaseAgent.set_bus(bus)
+    expert = MakubeXExpert(ai_engine=ai)
+    risk_call = next(c for c in bus.register_handler.call_args_list if c.args[1] == "smart_contract_risk")
+    handler = risk_call.args[2]
+    reply = await handler(_envelope({"protocol": "X", "asset": "Y", "context": "z"}))
+    assert reply["rating"] == "unknown"
+    assert "error" in reply
+
+
+@pytest.mark.asyncio
+async def test_smart_contract_risk_propagates_unexpected_ai_exception():
+    """If self.ai.chat raises an unexpected exception (e.g. RuntimeError from
+    a transport failure), the handler must propagate it — fail-loud on unexpected
+    errors so the bus dispatcher writes an error envelope at the bus layer."""
+    ai = MagicMock()
+    ai.chat = AsyncMock(side_effect=RuntimeError("simulated AI transport failure"))
+    bus = MagicMock()
+    bus.register_handler = MagicMock()
+    BaseAgent.set_bus(bus)
+    expert = MakubeXExpert(ai_engine=ai)
+    risk_call = next(c for c in bus.register_handler.call_args_list if c.args[1] == "smart_contract_risk")
+    handler = risk_call.args[2]
+    with pytest.raises(RuntimeError, match="simulated AI transport failure"):
+        await handler(_envelope({"protocol": "X", "asset": "Y", "context": "z"}))
