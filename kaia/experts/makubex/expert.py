@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from loguru import logger
 
+from bus import Envelope
 from core.ai_engine import AIEngine, build_message_history
 from database import queries as db
 from database.models import Channel, User
@@ -16,7 +18,7 @@ from experts.makubex.parser import (
     extract_code_block,
     parse_project_creation,
 )
-from experts.makubex.prompts import build_makubex_system_prompt
+from experts.makubex.prompts import build_makubex_system_prompt, build_smart_contract_risk_prompt
 from experts.makubex.skills.architecture import ArchitectureSkill
 from experts.makubex.skills.code_review import CodeReviewSkill
 from experts.makubex.skills.debugging import DebuggingSkill
@@ -45,6 +47,38 @@ class MakubeXExpert(BaseExpert):
         self.learning = LearningCoachSkill(ai_engine)
         self.projects = ProjectManagerSkill(ai_engine)
         self.proactive = MakubexProactiveSkill(ai_engine)
+
+    # ── Peer-intent registration (R-3) ─────────────────────────────
+
+    def _register_peer_intents(self) -> None:
+        # R-3: MakubeX answers smart_contract_risk consults from Hevn.
+        self.register_peer_intent("smart_contract_risk", self.handle_smart_contract_risk)
+
+    async def handle_smart_contract_risk(self, envelope: Envelope) -> dict:
+        """Inbound peer-intent handler. Returns a structured risk assessment.
+
+        On AI / JSON-parse failure, returns a dict containing an "error" key
+        rather than raising — keeps the bus dispatcher healthy.
+        """
+        protocol = envelope.payload.get("protocol", "")
+        asset = envelope.payload.get("asset", "")
+        context = envelope.payload.get("context", "")
+        system_prompt = build_smart_contract_risk_prompt(protocol, asset, context)
+        try:
+            resp = await self.ai.chat(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": f"Assess risk for {protocol} ({asset})."}],
+            )
+            parsed = json.loads(resp.text)
+            if not isinstance(parsed, dict):
+                raise ValueError("AI returned non-object JSON")
+            return parsed
+        except (ValueError, json.JSONDecodeError) as exc:
+            return {
+                "summary": "(MakubeX couldn't produce a structured assessment for this request.)",
+                "error": str(exc),
+                "rating": "unknown",
+            }
 
     # ── Main entry ──────────────────────────────────────────────────
 

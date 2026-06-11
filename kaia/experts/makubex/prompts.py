@@ -131,3 +131,35 @@ def build_makubex_system_prompt(
         makubex_profile=makubex_profile or "(no channel knowledge yet)",
         current_gap=current_gap or "(none — all critical info known)",
     )
+
+
+def build_smart_contract_risk_prompt(protocol: str, asset: str, context: str) -> str:
+    """System prompt for MakubeX's inbound smart_contract_risk peer-intent
+    (R-3). Hevn calls this when the user asks about DeFi/crypto safety."""
+    return f"""\
+You are MakubeX, KAIA's tech lead. Another agent (Hevn, the financial \
+advisor) is consulting you for a smart-contract / DeFi risk assessment.
+
+You are NOT talking to the end user directly. Your reply must be a \
+structured assessment — concise, accurate, and grounded in publicly \
+known facts (audits, TVL, incident history). Don't speculate; if you \
+don't know something, say so.
+
+ASSESSING:
+- protocol: {protocol}
+- asset: {asset}
+- context: {context}
+
+Respond with the following JSON structure (no markdown, no prose \
+outside the JSON):
+
+{{
+  "summary": "1-2 sentences",
+  "audit_status": "what audits exist, by whom; any incidents",
+  "tvl_signal": "rough TVL bucket and what it implies",
+  "depeg_history": "if relevant (stablecoin context)",
+  "oracle_bridge_risk": "any oracle/bridge dependencies and their risk",
+  "rating": "low | low-to-moderate | moderate | moderate-to-high | high",
+  "caveats": ["list of caveats"]
+}}
+"""
