@@ -22,6 +22,14 @@ def _agent() -> _StubAgent:
     return _StubAgent(ai_engine=MagicMock())
 
 
+@pytest.fixture(autouse=True)
+def _reset_bus():
+    """Pre/post-test reset of the class-level _bus slot to avoid cross-test leakage."""
+    BaseAgent.set_bus(None)
+    yield
+    BaseAgent.set_bus(None)
+
+
 def test_agent_id_aliases_channel_id():
     assert _agent().agent_id == "stub"
 
@@ -50,7 +58,6 @@ async def test_handle_turn_delegates_to_handle():
 async def test_peer_call_without_bus_raises():
     """Without bus injection, peer_call must raise — fail-loud."""
     from uuid import uuid4
-    BaseAgent.set_bus(None)
     agent = _agent()
     with pytest.raises(PeerCallError):
         await agent.peer_call("makubex", "consult", {"q": "x"}, user_id=uuid4())

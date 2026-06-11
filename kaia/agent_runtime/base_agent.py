@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TYPE_CHECKING
+from uuid import UUID
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from bus.bus import Bus, PeerIntentHandler
 
 from agent_runtime.context import AgentContext
 from config.settings import get_settings
@@ -50,7 +54,7 @@ class BaseAgent(ABC):
     _bus: "Bus | None" = None  # noqa: F821  (Bus imported lazily in peer_call to avoid cycle)
 
     @classmethod
-    def set_bus(cls, bus) -> None:
+    def set_bus(cls, bus: "Bus | None") -> None:
         """Inject the process-wide bus. The bot calls this once at post_init."""
         cls._bus = bus
 
@@ -96,7 +100,7 @@ class BaseAgent(ABC):
         via self._bus.register_handler(self.agent_id, intent, async_handler)."""
         pass
 
-    def register_peer_intent(self, intent: str, handler) -> None:
+    def register_peer_intent(self, intent: str, handler: "PeerIntentHandler") -> None:
         """Register an inbound peer-intent handler on the bus."""
         if self._bus is None:
             raise PeerCallError("register_peer_intent requires the bus to be initialised")
@@ -108,7 +112,7 @@ class BaseAgent(ABC):
         intent: str,
         payload: dict[str, Any],
         *,
-        user_id,  # uuid.UUID or str — passed from handler context
+        user_id: UUID,
         visibility=None,  # bus.Visibility, optional
         timeout: float | None = None,
     ) -> dict[str, Any]:
@@ -125,6 +129,10 @@ class BaseAgent(ABC):
             )
         # Lazy import to avoid bus → agent_runtime → bus cycle at module load.
         from bus import Visibility as _Visibility
+        # NOTE(R-4): conversation_id is not forwarded — each BaseAgent.peer_call
+        # starts a new conversation on the bus. Multi-hop consults (e.g.
+        # MakubeX → Kazuki while answering Hevn) will need this threaded
+        # through; not in scope for R-3.
         return await self._bus.peer_call(
             source=self.agent_id,
             target=target_agent_id,
