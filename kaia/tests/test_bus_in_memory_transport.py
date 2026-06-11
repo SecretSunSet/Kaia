@@ -18,8 +18,7 @@ async def test_publish_subscribe_round_trip():
     async def subscriber():
         async for payload in tx.subscribe("agent:hevn"):
             received.append(payload)
-            if len(received) >= 1:
-                return
+            return
 
     sub_task = asyncio.create_task(subscriber())
     # Give the subscriber a tick to register.
@@ -48,6 +47,7 @@ async def test_different_channels_dont_cross():
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(asyncio.shield(sub_task), timeout=0.1)
     sub_task.cancel()
+    await asyncio.gather(sub_task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

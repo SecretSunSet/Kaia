@@ -44,7 +44,7 @@ class InMemoryBusTransport:
         self.executed: list[tuple[str, tuple[Any, ...]]] = []
 
     async def publish(self, channel: str, payload: str) -> None:
-        for q in self._subscribers.get(channel, []):
+        for q in list(self._subscribers.get(channel, [])):
             await q.put(payload)
 
     async def subscribe(self, channel: str) -> AsyncIterator[str]:
