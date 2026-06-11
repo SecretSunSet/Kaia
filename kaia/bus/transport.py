@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, AsyncIterator, Protocol
+from uuid import UUID
+
+from bus.envelope import Envelope
 
 
 class BusTransport(Protocol):
@@ -23,6 +26,9 @@ class BusTransport(Protocol):
         execute(sql, *args): run a SQL statement (INSERT, etc.). Returns
             whatever the underlying driver returns (None in the in-memory
             impl; the asyncpg status string in prod).
+        store_envelope(env): persist/cache an Envelope for later retrieval.
+        fetch_envelope(envelope_id): retrieve a previously stored Envelope,
+            or None if not found.
     """
 
     async def publish(self, channel: str, payload: str) -> None: ...
@@ -30,6 +36,10 @@ class BusTransport(Protocol):
     def subscribe(self, channel: str) -> AsyncIterator[str]: ...
 
     async def execute(self, sql: str, *args: Any) -> Any: ...
+
+    async def store_envelope(self, env: Envelope) -> None: ...
+
+    async def fetch_envelope(self, envelope_id: UUID) -> Envelope | None: ...
 
 
 class InMemoryBusTransport:
@@ -42,6 +52,7 @@ class InMemoryBusTransport:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[asyncio.Queue[str]]] = {}
         self.executed: list[tuple[str, tuple[Any, ...]]] = []
+        self.envelopes: dict[UUID, Envelope] = {}
 
     async def publish(self, channel: str, payload: str) -> None:
         for q in list(self._subscribers.get(channel, [])):
@@ -60,3 +71,9 @@ class InMemoryBusTransport:
     async def execute(self, sql: str, *args: Any) -> Any:
         self.executed.append((sql, args))
         return None
+
+    async def store_envelope(self, env: Envelope) -> None:
+        self.envelopes[env.envelope_id] = env
+
+    async def fetch_envelope(self, envelope_id: UUID) -> Envelope | None:
+        return self.envelopes.get(envelope_id)

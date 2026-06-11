@@ -54,7 +54,6 @@ class Bus:
         self._dispatcher_tasks: list[asyncio.Task[None]] = []
         self._started = False
         self._shutting_down = False
-        self._inflight: dict[UUID, Envelope] = {}
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -164,7 +163,6 @@ class Bus:
             ) from exc
         finally:
             self._futures.pop(envelope_id, None)
-            self._inflight.pop(envelope_id, None)
 
     # ── Internals ───────────────────────────────────────────────────
 
@@ -192,10 +190,7 @@ class Bus:
             json.dumps(env.payload),
             env.created_at,
         )
-        # Cache for in-process delivery (InMemoryBusTransport path).
-        # Task 7 will replace this with transport.fetch_envelope() so the
-        # dispatcher works correctly with PostgresBusTransport too.
-        self._inflight[env.envelope_id] = env
+        await self._tx.store_envelope(env)
         await self._tx.publish(f"agent:{env.to_agent}", str(env.envelope_id))
         if env.visibility is Visibility.USER_VISIBLE:
             await self._tx.publish("bus:user_visible", str(env.envelope_id))
@@ -209,7 +204,7 @@ class Bus:
                 except ValueError:
                     logger.warning("Bus dispatch: malformed envelope_id {!r}", envelope_id_str)
                     continue
-                env = self._inflight.get(envelope_id)
+                env = await self._tx.fetch_envelope(envelope_id)
                 if env is None:
                     logger.debug("Bus dispatch: no envelope for {}", envelope_id)
                     continue
@@ -277,9 +272,3 @@ class Bus:
             fut.set_exception(PeerCallError(env.payload.get("error", "peer raised")))
         else:
             fut.set_result(env.payload)
-        # Evict the round-trip's envelopes from the in-process cache so it
-        # does not grow unbounded over uptime (Task 7 removes this cache
-        # entirely; until then this leak fix matters for R-3 prod).
-        self._inflight.pop(env.envelope_id, None)
-        if env.reply_to is not None:
-            self._inflight.pop(env.reply_to, None)

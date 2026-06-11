@@ -10,6 +10,7 @@ from __future__ import annotations
 from agent_runtime.base_agent import PeerCallError, PeerCallTimeoutError
 from bus.bus import Bus
 from bus.envelope import Envelope, Visibility
+from bus.postgres_transport import PostgresBusTransport
 from bus.transport import BusTransport, InMemoryBusTransport
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "InMemoryBusTransport",
     "PeerCallError",
     "PeerCallTimeoutError",
+    "PostgresBusTransport",
     "Visibility",
 ]
