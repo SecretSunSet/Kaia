@@ -73,6 +73,16 @@ class Bus:
         """
         if self._started:
             return
+        # NOTE(R-4): in R-3 single-process, dispatchers are spawned only
+        # for agents that have registered handlers. Source agents (e.g.
+        # hevn calling peer_call without owning handlers) rely on the
+        # direct _resolve_future path in _handle_request. When Task 7+R-4
+        # splits this Bus into per-process instances, each process MUST
+        # spawn a dispatcher subscribed to its own agent_id even if it
+        # registers no handlers — otherwise cross-process replies arrive
+        # via NOTIFY with no subscriber and peer_call times out silently.
+        # Either pass owned_agent_ids to __init__ or register no-op
+        # handlers in the source process.
         agents = {agent_id for (agent_id, _intent) in self._handlers}
         for agent_id in agents:
             task = asyncio.create_task(
@@ -143,6 +153,10 @@ class Bus:
         self._futures[envelope_id] = fut
         try:
             await self._persist_and_notify(env, ensure_conversation=True)
+            # NOTE(R-4): if the timeout fires, the peer's handler may still
+            # be running. With PostgresBusTransport it can produce an orphan
+            # agent_messages reply row (no caller waiting). R-4/R-5 will
+            # solve this with deadline propagation to handlers.
             return await asyncio.wait_for(fut, timeout=budget)
         except asyncio.TimeoutError as exc:
             raise PeerCallTimeoutError(
@@ -150,6 +164,7 @@ class Bus:
             ) from exc
         finally:
             self._futures.pop(envelope_id, None)
+            self._inflight.pop(envelope_id, None)
 
     # ── Internals ───────────────────────────────────────────────────
 
@@ -262,3 +277,9 @@ class Bus:
             fut.set_exception(PeerCallError(env.payload.get("error", "peer raised")))
         else:
             fut.set_result(env.payload)
+        # Evict the round-trip's envelopes from the in-process cache so it
+        # does not grow unbounded over uptime (Task 7 removes this cache
+        # entirely; until then this leak fix matters for R-3 prod).
+        self._inflight.pop(env.envelope_id, None)
+        if env.reply_to is not None:
+            self._inflight.pop(env.reply_to, None)

@@ -168,7 +168,13 @@ async def test_shutdown_cancels_in_flight_futures():
 
 
 @pytest.mark.asyncio
-async def test_bus_records_insert_then_notify():
+async def test_bus_records_insert_for_request():
+    """The Bus must INSERT a row into agent_messages for the request envelope.
+
+    (Asserts on the recorded execute() sequence in InMemoryBusTransport.
+    NOTIFY ordering relative to INSERT is guaranteed by the code structure
+    of _persist_and_notify — see bus.py — and not separately asserted here.)
+    """
     async def handler(env: Envelope) -> dict:
         return {}
 
@@ -178,5 +184,78 @@ async def test_bus_records_insert_then_notify():
         sql_sequence = [sql for sql, _ in tx.executed]
         assert any("INSERT INTO agent_messages" in s for s in sql_sequence), \
             "Bus did not INSERT the request row via transport.execute"
+    finally:
+        await bus.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_peer_call_no_handler_raises_peer_call_error():
+    """If the target agent has no handler for the intent, the Bus must send
+    an error reply that surfaces to the caller as PeerCallError."""
+    # Register a handler for a DIFFERENT intent so the target agent has a
+    # dispatcher but no handler for 'missing_intent'.
+    async def stub(env: Envelope) -> dict:
+        return {}
+
+    bus, _ = await _start_bus_with_handlers({("makubex", "other"): stub})
+    try:
+        with pytest.raises(PeerCallError) as exc:
+            await bus.peer_call(
+                source="hevn", target="makubex", intent="missing_intent",
+                payload={}, user_id=_user_id(),
+            )
+        assert "no handler" in str(exc.value).lower() or "missing_intent" in str(exc.value)
+    finally:
+        await bus.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_peer_call_after_shutdown_raises():
+    """peer_call invoked after shutdown() must raise PeerCallError immediately."""
+    async def handler(env: Envelope) -> dict:
+        return {}
+
+    bus, _ = await _start_bus_with_handlers({("makubex", "x"): handler})
+    await bus.shutdown()
+    with pytest.raises(PeerCallError) as exc:
+        await bus.peer_call("hevn", "makubex", "x", {}, _user_id())
+    assert "shutting down" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_is_idempotent():
+    """Calling shutdown() twice must not raise or hang."""
+    async def handler(env: Envelope) -> dict:
+        return {}
+
+    bus, _ = await _start_bus_with_handlers({("makubex", "x"): handler})
+    await bus.shutdown()
+    await bus.shutdown()  # second call — guarded by _shutting_down
+
+
+@pytest.mark.asyncio
+async def test_dual_path_resolution_when_source_agent_has_dispatcher():
+    """When the source agent ALSO has registered handlers (and thus a
+    dispatcher subscribed to its own channel), the reply can arrive twice:
+    once via the direct in-process path in _handle_request, once via the
+    source-agent dispatcher receiving the NOTIFY. The second resolution
+    must be a no-op (guarded by fut.done())."""
+    async def makubex_handler(env: Envelope) -> dict:
+        return {"ok": True}
+
+    async def hevn_handler(env: Envelope) -> dict:
+        return {"hevn-saw": env.payload.get("q")}
+
+    # Both agents have handlers → both get dispatchers
+    bus, _ = await _start_bus_with_handlers({
+        ("makubex", "x"): makubex_handler,
+        ("hevn", "y"): hevn_handler,  # unrelated to the call below; just to spawn hevn dispatcher
+    })
+    try:
+        reply = await bus.peer_call("hevn", "makubex", "x", {}, _user_id())
+        assert reply == {"ok": True}
+        # Sanity: give the source dispatcher a chance to also process the reply
+        # NOTIFY. The second resolution attempt must be a silent no-op.
+        await asyncio.sleep(0.05)
     finally:
         await bus.shutdown()
