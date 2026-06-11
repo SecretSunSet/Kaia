@@ -25,8 +25,12 @@ from skills.base import SkillResult
 from utils.time_utils import format_relative_time
 
 
-class PeerCallError(NotImplementedError):
-    """Raised when an agent attempts a peer call before the R-3 bus lands."""
+class PeerCallError(Exception):
+    """Base error for failures in BaseAgent.peer_call (R-3)."""
+
+
+class PeerCallTimeoutError(PeerCallError):
+    """Raised when a peer_call exceeds its timeout budget (R-3)."""
 
 
 class BaseAgent(ABC):
