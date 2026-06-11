@@ -57,6 +57,13 @@ class Bus:
 
     # ── Public API ──────────────────────────────────────────────────
 
+    @property
+    def transport(self) -> BusTransport:
+        """Public accessor for the injected transport. Used by callers that
+        need to subscribe to user_visible relay or fetch envelopes outside
+        the dispatcher loop (e.g., the bot's attribution relay)."""
+        return self._tx
+
     def register_handler(self, agent_id: str, intent: str, handler: PeerIntentHandler) -> None:
         """Register an inbound peer-intent handler for an agent."""
         self._handlers[(agent_id, intent)] = handler

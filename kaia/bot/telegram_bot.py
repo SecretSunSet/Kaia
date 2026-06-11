@@ -33,7 +33,7 @@ from core.expert_detector import clear_suggestion_history
 from core.forum_manager import ForumManager, ForumSetupError
 from core.scheduler import start_scheduler, shutdown_scheduler, handle_snooze, handle_dismiss
 from agent_runtime.base_agent import BaseAgent
-from bus import Bus, Envelope, PostgresBusTransport, Visibility
+from bus import Bus, Envelope, PostgresBusTransport
 from database.queries import (
     get_or_create_user,
     get_channel_profile,
@@ -760,7 +760,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def post_init(application: Application) -> None:
     """Called after the Application is initialised — start bus, scheduler, cleanup."""
     bot = application.bot
-    set_bot(bot)
 
     # R-3: start the bus FIRST — fail fast if Postgres is unreachable.
     global _bus, _user_visible_task
@@ -781,6 +780,7 @@ async def post_init(application: Application) -> None:
     )
 
     # ── existing R-1/R-2 post_init body — preserve unchanged ──
+    set_bot(bot)
     await start_scheduler(bot)
     cleanup_old_files()  # Clean up any stale TTS files from previous runs
     logger.info("Post-init complete: scheduler started, bus running, relay active")
@@ -799,7 +799,7 @@ async def post_shutdown(application: Application) -> None:
         _user_visible_task = None
     if _bus is not None:
         await _bus.shutdown()
-        tx = _bus._tx
+        tx = _bus.transport
         if hasattr(tx, "shutdown"):
             await tx.shutdown()
         _bus = None
@@ -827,6 +827,23 @@ async def _agent_display(agent_id: str) -> tuple[str, str]:
     return display
 
 
+def _md_escape(text: str) -> str:
+    """Escape Telegram Markdown (V1) special chars in dynamic content.
+
+    Conservative: escapes the four format-significant chars `*`, `_`,
+    `[`, and `` ` ``. Used only on payload-derived strings inside the
+    R-3 attribution relay; the rest of the bot's text rendering is
+    written by humans who already know the markdown contract.
+    """
+    return (
+        text.replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("_", "\\_")
+        .replace("[", "\\[")
+        .replace("`", "\\`")
+    )
+
+
 def _format_reply_payload(payload: dict) -> str:
     """Pretty-print a peer reply payload as Markdown bullets.
 
@@ -835,12 +852,13 @@ def _format_reply_payload(payload: dict) -> str:
     lines = []
     for key, val in payload.items():
         if key == "caveats" and isinstance(val, list):
-            lines.append(f"- *Caveats:* {'; '.join(val)}")
+            joined = "; ".join(_md_escape(str(item)) for item in val)
+            lines.append(f"- *Caveats:* {joined}")
         elif isinstance(val, (dict, list)):
-            lines.append(f"- *{key.replace('_', ' ').title()}:* {json.dumps(val)}")
+            lines.append(f"- *{_md_escape(key.replace('_', ' ').title())}:* {_md_escape(json.dumps(val))}")
         else:
-            label = key.replace("_", " ").title()
-            lines.append(f"- *{label}:* {val}")
+            label = _md_escape(key.replace("_", " ").title())
+            lines.append(f"- *{label}:* {_md_escape(str(val))}")
     return "\n".join(lines)
 
 
@@ -853,14 +871,18 @@ async def _render_envelope_to_user(bot, env: Envelope) -> None:
         return
     from_emoji, from_name = await _agent_display(env.from_agent)
     to_emoji, to_name = await _agent_display(env.to_agent)
+    # Names from the channels table can contain markdown chars too — escape.
+    from_name = _md_escape(from_name)
+    to_name = _md_escape(to_name)
     if env.kind == "request":
         body = env.payload.get("context") or env.payload.get("question") or json.dumps(env.payload)
-        text = f"{from_emoji} *{from_name}* → {to_emoji} *{to_name}* (consult): {body}"
+        text = f"{from_emoji} *{from_name}* → {to_emoji} *{to_name}* (consult): {_md_escape(body)}"
     elif env.kind == "reply":
-        body = _format_reply_payload(env.payload)
+        body = _format_reply_payload(env.payload) or "_no content_"
         text = f"{to_emoji} *{to_name}* → {from_emoji} *{from_name}* (reply):\n{body}"
     else:  # error
-        text = f"⚠️ *{to_name}* → *{from_name}* (error): {env.payload.get('error', 'unknown')}"
+        err = env.payload.get("error", "unknown")
+        text = f"⚠️ *{to_name}* → *{from_name}* (error): {_md_escape(str(err))}"
     await bot.send_message(chat_id=user.telegram_id, text=truncate(text), parse_mode="Markdown")
 
 
@@ -870,7 +892,7 @@ async def _relay_user_visible_envelopes(bot) -> None:
     thread. Loop is loud-on-failure (logs but does NOT silently drop —
     R-3 invariant #2)."""
     assert _bus is not None
-    transport = _bus._tx  # intentional access via the Bus's transport
+    transport = _bus.transport
     try:
         async for envelope_id_str in transport.subscribe("bus:user_visible"):
             try:

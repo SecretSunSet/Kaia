@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from decimal import Decimal
+from uuid import UUID
 
 from loguru import logger
 
@@ -66,9 +67,16 @@ async def get_or_create_user(telegram_id: int, username: str | None = None) -> U
     )
 
 
-async def get_user_by_id(user_id) -> User | None:
+async def get_user_by_id(user_id: UUID) -> User | None:
     """Look up a user by internal UUID (not telegram_id). Used by the R-3 bus
-    relay to map envelope.user_id → telegram_id for outbound rendering."""
+    relay to map envelope.user_id → telegram_id for outbound rendering.
+
+    NOTE: like every other helper in this module, uses the sync supabase
+    client — the HTTP round-trip blocks the event loop for its duration.
+    Acceptable for R-3 demo load (single user, bounded peer_call rate);
+    migrate `database/connection.py` to the async client before this
+    helper is hit in multi-user / high-concurrency scenarios.
+    """
     sb = get_supabase()
     result = sb.table("users").select("*").eq("id", str(user_id)).limit(1).execute()
     if not result.data:
