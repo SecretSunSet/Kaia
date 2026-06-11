@@ -32,6 +32,11 @@ async def test_defi_consult_end_to_end_produces_three_envelopes():
     Bus traffic should contain: request envelope (hevn → makubex) +
     reply envelope (makubex → hevn). Both visibility=user_visible →
     both surface on bus:user_visible.
+
+    The "three" in the test name refers to the 3 user-visible MESSAGES
+    in the Telegram thread (consult question + reply payload + Hevn's
+    synthesis), not 3 envelopes — only 2 envelopes flow through the bus
+    (request + reply); the synthesis is returned as a SkillResult.
     """
     tx = InMemoryBusTransport()
     bus = Bus(transport=tx, default_timeout=5.0)
@@ -92,5 +97,14 @@ async def test_defi_consult_end_to_end_produces_three_envelopes():
 
     assert len(user_visible_seen) == 2, f"expected 2 user_visible envelopes, got {len(user_visible_seen)}"
     assert "Based on MakubeX" in result.text or "5%" in result.text
+
+    # Tighten: prove the synthesis prompt actually received MakubeX's
+    # structured reply (and not a stale dict or empty payload). The
+    # synthesis call is Hevn's SECOND ai.chat invocation; its system
+    # prompt should contain the rating field from the risk profile.
+    synthesis_call = hevn_ai.chat.call_args_list[1]
+    synthesis_system_prompt = synthesis_call.kwargs.get("system_prompt", "")
+    assert "low-to-moderate" in synthesis_system_prompt, \
+        "MakubeX's rating did not reach Hevn's synthesis prompt"
 
     await bus.shutdown()
