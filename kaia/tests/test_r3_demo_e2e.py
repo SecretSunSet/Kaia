@@ -64,9 +64,12 @@ async def test_defi_consult_end_to_end_produces_three_envelopes():
         "caveats": ["smart-contract residual risk"],
     })))
 
-    hevn = HevnExpert(ai_engine=hevn_ai)
-    makubex = MakubeXExpert(ai_engine=makubex_ai)  # __init__ registers smart_contract_risk handler
+    # Production ordering: bus is started in post_init BEFORE any expert is
+    # instantiated lazily by _handle_expert_turn. Register_handler must spawn
+    # the dispatcher dynamically — otherwise every peer_call times out in prod.
     await bus.start()
+    hevn = HevnExpert(ai_engine=hevn_ai)
+    makubex = MakubeXExpert(ai_engine=makubex_ai)
 
     user_visible_seen: list[str] = []
     async def watcher():

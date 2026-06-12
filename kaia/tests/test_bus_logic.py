@@ -259,3 +259,31 @@ async def test_dual_path_resolution_when_source_agent_has_dispatcher():
         await asyncio.sleep(0.05)
     finally:
         await bus.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_handler_registered_after_start_spawns_dispatcher():
+    """Production ordering: bus.start() is called BEFORE any agent is
+    instantiated. register_handler must dynamically spawn a dispatcher
+    for the agent_id when called after start, so peer_call works.
+
+    Without this fix, prod silently breaks: NOTIFY is published but no
+    listener is registered → peer_call times out → demo fails."""
+    tx = InMemoryBusTransport()
+    bus = Bus(transport=tx, default_timeout=1.0)
+    await bus.start()  # _handlers is empty; no dispatchers spawned by start()
+
+    async def makubex_handler(env: Envelope) -> dict:
+        return {"ok": True, "echo": env.payload.get("q")}
+
+    # NOW register a handler — must trigger a dynamic dispatcher spawn.
+    bus.register_handler("makubex", "echo", makubex_handler)
+
+    try:
+        reply = await bus.peer_call(
+            source="hevn", target="makubex", intent="echo",
+            payload={"q": "post-start"}, user_id=_user_id(),
+        )
+        assert reply == {"ok": True, "echo": "post-start"}
+    finally:
+        await bus.shutdown()

@@ -54,6 +54,10 @@ class Bus:
         self._dispatcher_tasks: list[asyncio.Task[None]] = []
         self._started = False
         self._shutting_down = False
+        # Set to True when register_handler dynamically spawns a dispatcher
+        # after start(). peer_call yields once to let new dispatchers reach
+        # their first subscribe() before publishing NOTIFY.
+        self._needs_dispatch_yield = False
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -65,8 +69,29 @@ class Bus:
         return self._tx
 
     def register_handler(self, agent_id: str, intent: str, handler: PeerIntentHandler) -> None:
-        """Register an inbound peer-intent handler for an agent."""
+        """Register an inbound peer-intent handler for an agent.
+
+        Order-independent: if called BEFORE start(), the handler is queued
+        and a dispatcher is spawned by start(). If called AFTER start() for
+        an agent_id that has no existing dispatcher, a dispatcher is spawned
+        on the fly. This lets the bot instantiate agents lazily (in
+        _handle_expert_turn) without an ordering constraint with post_init's
+        bus.start() call.
+        """
+        is_first_for_agent = agent_id not in {a for (a, _) in self._handlers}
         self._handlers[(agent_id, intent)] = handler
+        if self._started and is_first_for_agent and not self._shutting_down:
+            task = asyncio.create_task(
+                self._dispatch_loop(agent_id), name=f"bus-dispatch-{agent_id}"
+            )
+            self._dispatcher_tasks.append(task)
+            # Mark that peer_call must yield before publishing so this
+            # new dispatcher can reach its first subscribe() call.
+            self._needs_dispatch_yield = True
+            logger.info(
+                "Bus: spawned post-start dispatcher for agent {!r} (first intent: {!r})",
+                agent_id, intent,
+            )
 
     async def start(self) -> None:
         """Launch one dispatcher task per agent that has handlers registered.
@@ -140,6 +165,12 @@ class Bus:
         """
         if self._shutting_down:
             raise PeerCallError("bus is shutting down")
+        # If register_handler dynamically spawned a new dispatcher after
+        # start(), yield once so it can reach its first subscribe() before
+        # we publish NOTIFY — mirrors the sleep(0) at the end of start().
+        if self._needs_dispatch_yield:
+            self._needs_dispatch_yield = False
+            await asyncio.sleep(0)
         budget = timeout if timeout is not None else self._default_timeout
         conv_id = conversation_id or uuid4()
         envelope_id = uuid4()
