@@ -170,3 +170,46 @@ def amortize(
         total_interest=total_interest,
         payoffs=payoffs,
     )
+
+
+# Below this saving, avalanche's edge is too small to outweigh the
+# motivational value of an early snowball win.
+TRIVIAL_SAVINGS = Decimal("1000")
+
+
+@dataclass
+class StrategyComparison:
+    avalanche: PayoffPlan
+    snowball: PayoffPlan
+    interest_saved_by_avalanche: Decimal = Decimal("0")
+
+
+def compare_strategies(
+    debts: list[DebtInput], monthly_budget: Decimal, start: date | None = None
+) -> StrategyComparison:
+    """Run both strategies on the same inputs."""
+    av = amortize(debts, monthly_budget, "avalanche", start)
+    sn = amortize(debts, monthly_budget, "snowball", start)
+    saved = Decimal("0")
+    if av.ok and sn.ok:
+        saved = sn.total_interest - av.total_interest
+    return StrategyComparison(
+        avalanche=av, snowball=sn, interest_saved_by_avalanche=saved
+    )
+
+
+def recommend_strategy(comp: StrategyComparison) -> tuple[str, str]:
+    """Deterministic recommendation: avalanche unless its savings are
+    trivial AND snowball delivers a faster first win."""
+    if not (comp.avalanche.ok and comp.snowball.ok):
+        return "avalanche", "Pay the highest-rate debt first."
+    first_av = comp.avalanche.payoffs[0].payoff_month if comp.avalanche.payoffs else 0
+    first_sn = comp.snowball.payoffs[0].payoff_month if comp.snowball.payoffs else 0
+    if comp.interest_saved_by_avalanche <= TRIVIAL_SAVINGS and first_sn < first_av:
+        return "snowball", (
+            "The interest difference is small here, and clearing your first "
+            "debt sooner keeps you motivated."
+        )
+    return "avalanche", (
+        "It saves you the most money by killing the highest-rate debt first."
+    )

@@ -128,3 +128,39 @@ def test_freed_minimum_rolls_into_surplus():
     assert total_principal + plan.total_interest <= paid_upper_bound
     # The final month is a partial payment, so strictly fewer full budgets:
     assert total_principal + plan.total_interest > budget * (plan.months - 1)
+
+
+def test_compare_strategies_returns_both_plans_and_delta():
+    debts = [
+        _debt("a", "Big High-Rate", 5000, 0.03, 250),
+        _debt("b", "Small Low-Rate", 2000, 0.01, 100),
+    ]
+    comp = debt_math.compare_strategies(debts, Decimal("1000"), START)
+    assert comp.avalanche.ok and comp.snowball.ok
+    assert comp.interest_saved_by_avalanche == (
+        comp.snowball.total_interest - comp.avalanche.total_interest
+    )
+    assert comp.interest_saved_by_avalanche > 0
+
+
+def test_recommend_avalanche_when_savings_material():
+    debts = [
+        _debt("a", "Card", 100000, 0.035, 3000),
+        _debt("b", "Loan", 20000, 0.01, 1000),
+    ]
+    comp = debt_math.compare_strategies(debts, Decimal("10000"), START)
+    strategy, reason = debt_math.recommend_strategy(comp)
+    assert strategy == "avalanche"
+    assert reason  # non-empty human-readable rationale
+
+
+def test_recommend_snowball_when_savings_trivial_and_quick_win():
+    # Nearly identical rates -> avalanche saves almost nothing; the small
+    # debt's quick payoff makes snowball the better behavioral pick.
+    debts = [
+        _debt("a", "Loan A", 50000, 0.0201, 1500),
+        _debt("b", "Loan B", 3000, 0.02, 300),
+    ]
+    comp = debt_math.compare_strategies(debts, Decimal("5000"), START)
+    strategy, _reason = debt_math.recommend_strategy(comp)
+    assert strategy == "snowball"
