@@ -42,6 +42,12 @@ async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
         return "general_chat"
 
     if any(p in low for p in (
+        "debt", "owe", "utang", "loan", "credit card balance",
+        "get out of debt", "pay off", "payoff",
+    )):
+        return "debt"
+
+    if any(p in low for p in (
         "financial health", "how am i doing", "how's my finances", "my finances",
         "score", "assessment",
     )):
@@ -86,7 +92,7 @@ async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
             skill = parsed.get("skill", "general_chat")
             if skill in {
                 "health_assessment", "budget_coaching", "goals", "bills",
-                "market_trends", "education", "general_chat",
+                "market_trends", "education", "general_chat", "debt",
             }:
                 return skill
     except Exception as exc:
@@ -176,4 +182,102 @@ async def parse_bill_creation(
         }
     except Exception as exc:
         logger.debug("Bill parse failed: {}", exc)
+        return None
+
+
+async def parse_debt_mention(ai: AIEngine, message: str) -> dict | None:
+    """Parse debt details from a message. Returns a dict of the keys below
+    (values None when not stated), or None when NO field was found.
+
+    Partial results matter: during the guided audit the user answers one
+    field at a time ("3.5% monthly"), so callers merge dicts.
+    """
+    system = (
+        "Extract debt details from the user's message. Return ONLY a JSON "
+        "object with these keys (null if not stated): "
+        '{"name": string or null (lender/product, e.g. "BPI Credit Card"), '
+        '"debt_type": "credit_card"|"salary_loan"|"personal_loan"|"five_six"'
+        '|"pagibig_loan"|"sss_loan"|"auto_loan"|"mortgage"|"other"|null, '
+        '"balance": number or null (pesos), '
+        '"interest_rate": number or null (percent, as quoted), '
+        '"rate_period": "monthly"|"yearly"|null, '
+        '"minimum_payment": number or null, '
+        '"due_day": integer 1-31 or null}. '
+        "Treat shorthand like '45k' as 45000. If the message has no debt "
+        "details at all, return every key as null."
+    )
+    try:
+        response = await ai.chat(
+            system_prompt=system,
+            messages=[{"role": "user", "content": message}],
+            max_tokens=200,
+        )
+        text = response.text.strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        parsed = json.loads(text[start:end + 1])
+        if not isinstance(parsed, dict):
+            return None
+        keys = (
+            "name", "debt_type", "balance", "interest_rate",
+            "rate_period", "minimum_payment", "due_day",
+        )
+        result = {k: parsed.get(k) for k in keys}
+        if all(v is None for v in result.values()):
+            return None
+        return result
+    except Exception as exc:
+        logger.debug("parse_debt_mention failed: {}", exc)
+        return None
+
+
+async def parse_debt_payment(ai: AIEngine, message: str) -> dict | None:
+    """Parse 'paid 5k on my BPI card' -> {"debt_name": ..., "amount": ...}."""
+    system = (
+        "The user reports paying money toward a debt. Return ONLY a JSON "
+        'object: {"debt_name": string or null, "amount": number or null '
+        "(pesos; treat '5k' as 5000)}. If this is not a debt payment, "
+        "return both as null."
+    )
+    try:
+        response = await ai.chat(
+            system_prompt=system,
+            messages=[{"role": "user", "content": message}],
+            max_tokens=80,
+        )
+        text = response.text.strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        parsed = json.loads(text[start:end + 1])
+        if not isinstance(parsed, dict) or parsed.get("amount") is None:
+            return None
+        return {"debt_name": parsed.get("debt_name"), "amount": parsed["amount"]}
+    except Exception as exc:
+        logger.debug("parse_debt_payment failed: {}", exc)
+        return None
+
+
+async def parse_amount(ai: AIEngine, message: str) -> float | None:
+    """Parse a single peso amount from a free-form answer."""
+    system = (
+        "Extract the single peso amount the user states. Return ONLY a JSON "
+        'object: {"amount": number or null}. Treat \'15k\' as 15000.'
+    )
+    try:
+        response = await ai.chat(
+            system_prompt=system,
+            messages=[{"role": "user", "content": message}],
+            max_tokens=40,
+        )
+        text = response.text.strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        parsed = json.loads(text[start:end + 1])
+        amount = parsed.get("amount") if isinstance(parsed, dict) else None
+        return float(amount) if amount is not None else None
+    except Exception as exc:
+        logger.debug("parse_amount failed: {}", exc)
         return None
