@@ -139,3 +139,29 @@ async def test_action_debt_requests_beat_education_deferral():
     assert await classify_hevn_intent(ai, "how do I get out of debt") == "debt"
     assert await classify_hevn_intent(ai, "how do I reduce my debt") == "debt"
     ai.chat.assert_not_called()
+
+
+from experts.hevn.prompts import HEVN_INTENT_PROMPT, build_hevn_system_prompt
+
+
+def test_intent_prompt_includes_debt_skill():
+    assert "- debt:" in HEVN_INTENT_PROMPT
+
+
+def test_system_prompt_includes_debts_summary():
+    prompt = build_hevn_system_prompt(
+        user_context="",
+        budget_summary="",
+        goals_summary="",
+        current_gap="",
+        debts_summary="2 active debts, ₱65,000 total",
+    )
+    assert "2 active debts" in prompt
+    assert "Debt Counseling Expertise" in prompt
+
+
+def test_system_prompt_debts_summary_defaults_empty():
+    prompt = build_hevn_system_prompt(
+        user_context="", budget_summary="", goals_summary="", current_gap=""
+    )
+    assert "(no debts on file)" in prompt
