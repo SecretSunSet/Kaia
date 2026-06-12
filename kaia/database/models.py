@@ -170,6 +170,51 @@ class RecurringBill:
     created_at: datetime | None = None
 
 
+# ── Hevn Debt Coach (Phase D-1) ─────────────────────────────────────
+
+@dataclass
+class Debt:
+    user_id: str
+    name: str
+    debt_type: str  # credit_card, salary_loan, personal_loan, five_six,
+                    # pagibig_loan, sss_loan, auto_loan, mortgage, other
+    balance: Decimal
+    interest_rate: Decimal  # as quoted, in percent
+    rate_period: str = "monthly"  # monthly, yearly
+    rate_is_estimate: bool = False
+    minimum_payment: Decimal | None = None
+    due_day: int | None = None
+    original_amount: Decimal | None = None
+    id: str = ""
+    status: str = "active"  # active, paid_off, archived
+    notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class DebtPayment:
+    debt_id: str
+    user_id: str
+    amount: Decimal
+    paid_on: date
+    balance_after: Decimal
+    id: str = ""
+    created_at: datetime | None = None
+
+
+@dataclass
+class DebtPlan:
+    user_id: str
+    strategy: str  # avalanche, snowball
+    monthly_budget: Decimal
+    baseline_payoff_date: date
+    baseline_total_interest: Decimal
+    id: str = ""
+    status: str = "active"  # active, completed, abandoned
+    created_at: datetime | None = None
+
+
 # ── MakubeX (Phase CH-3) ────────────────────────────────────────────
 
 @dataclass

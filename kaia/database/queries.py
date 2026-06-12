@@ -23,6 +23,9 @@ from database.models import (
     ForumTopicMapping,
     FinancialGoal,
     RecurringBill,
+    Debt,
+    DebtPayment,
+    DebtPlan,
     TechProject,
     TechSkill,
     LearningLogEntry,
@@ -995,6 +998,212 @@ async def get_recurring_bill_by_id(bill_id: str) -> RecurringBill | None:
     if not result.data:
         return None
     return _row_to_recurring_bill(result.data[0])
+
+
+# ── Debts (Hevn — Phase D-1) ────────────────────────────────────────
+
+def _row_to_debt(row: dict) -> Debt:
+    """Convert a Supabase row dict to a Debt dataclass."""
+    minimum = row.get("minimum_payment")
+    original = row.get("original_amount")
+    return Debt(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        debt_type=row.get("debt_type", "other"),
+        balance=Decimal(str(row["balance"])),
+        interest_rate=Decimal(str(row["interest_rate"])),
+        rate_period=row.get("rate_period", "monthly"),
+        rate_is_estimate=row.get("rate_is_estimate", False),
+        minimum_payment=Decimal(str(minimum)) if minimum is not None else None,
+        due_day=row.get("due_day"),
+        original_amount=Decimal(str(original)) if original is not None else None,
+        status=row.get("status", "active"),
+        notes=row.get("notes"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
+
+
+async def create_debt(
+    user_id: str,
+    name: str,
+    balance: float,
+    interest_rate: float,
+    debt_type: str = "other",
+    rate_period: str = "monthly",
+    rate_is_estimate: bool = False,
+    minimum_payment: float | None = None,
+    due_day: int | None = None,
+    original_amount: float | None = None,
+    notes: str | None = None,
+) -> Debt:
+    """Insert a new debt and return it."""
+    sb = get_supabase()
+    data: dict = {
+        "user_id": user_id,
+        "name": name,
+        "debt_type": debt_type,
+        "balance": balance,
+        "interest_rate": interest_rate,
+        "rate_period": rate_period,
+        "rate_is_estimate": rate_is_estimate,
+    }
+    if minimum_payment is not None:
+        data["minimum_payment"] = minimum_payment
+    if due_day is not None:
+        data["due_day"] = due_day
+    if original_amount is not None:
+        data["original_amount"] = original_amount
+    if notes:
+        data["notes"] = notes
+    result = sb.table("debts").insert(data).execute()
+    return _row_to_debt(result.data[0])
+
+
+async def get_debts(user_id: str, status: str | None = "active") -> list[Debt]:
+    """Return debts for a user (optionally filtered by status)."""
+    sb = get_supabase()
+    query = sb.table("debts").select("*").eq("user_id", user_id)
+    if status:
+        query = query.eq("status", status)
+    result = query.order("balance", desc=True).execute()
+    return [_row_to_debt(r) for r in result.data]
+
+
+async def get_debt_by_id(debt_id: str) -> Debt | None:
+    """Fetch a single debt by ID."""
+    sb = get_supabase()
+    result = sb.table("debts").select("*").eq("id", debt_id).execute()
+    if not result.data:
+        return None
+    return _row_to_debt(result.data[0])
+
+
+async def update_debt(debt_id: str, **fields: object) -> None:
+    """Update arbitrary fields on a debt."""
+    if not fields:
+        return
+    sb = get_supabase()
+    payload = dict(fields)
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    sb.table("debts").update(payload).eq("id", debt_id).execute()
+
+
+async def create_debt_payment(
+    debt_id: str,
+    user_id: str,
+    amount: float,
+    balance_after: float,
+    paid_on: str | None = None,
+) -> None:
+    """Log a payment against a debt."""
+    sb = get_supabase()
+    data: dict = {
+        "debt_id": debt_id,
+        "user_id": user_id,
+        "amount": amount,
+        "balance_after": balance_after,
+    }
+    if paid_on:
+        data["paid_on"] = paid_on
+    sb.table("debt_payments").insert(data).execute()
+
+
+async def get_debt_payments(debt_id: str, limit: int = 12) -> list[DebtPayment]:
+    """Recent payments for one debt, newest first."""
+    sb = get_supabase()
+    result = (
+        sb.table("debt_payments")
+        .select("*")
+        .eq("debt_id", debt_id)
+        .order("paid_on", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [
+        DebtPayment(
+            id=r["id"],
+            debt_id=r["debt_id"],
+            user_id=r["user_id"],
+            amount=Decimal(str(r["amount"])),
+            paid_on=date.fromisoformat(r["paid_on"]),
+            balance_after=Decimal(str(r["balance_after"])),
+            created_at=r.get("created_at"),
+        )
+        for r in result.data
+    ]
+
+
+async def get_active_debt_plan(user_id: str) -> DebtPlan | None:
+    """The user's single active payoff plan, if any."""
+    sb = get_supabase()
+    result = (
+        sb.table("debt_plans")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+        .execute()
+    )
+    if not result.data:
+        return None
+    r = result.data[0]
+    return DebtPlan(
+        id=r["id"],
+        user_id=r["user_id"],
+        strategy=r["strategy"],
+        monthly_budget=Decimal(str(r["monthly_budget"])),
+        baseline_payoff_date=date.fromisoformat(r["baseline_payoff_date"]),
+        baseline_total_interest=Decimal(str(r["baseline_total_interest"])),
+        status=r.get("status", "active"),
+        created_at=r.get("created_at"),
+    )
+
+
+async def create_debt_plan(
+    user_id: str,
+    strategy: str,
+    monthly_budget: float,
+    baseline_payoff_date: str,
+    baseline_total_interest: float,
+) -> DebtPlan:
+    """Create the active payoff plan, retiring any previous active plan."""
+    sb = get_supabase()
+    sb.table("debt_plans").update({"status": "abandoned"}).eq(
+        "user_id", user_id
+    ).eq("status", "active").execute()
+    result = (
+        sb.table("debt_plans")
+        .insert(
+            {
+                "user_id": user_id,
+                "strategy": strategy,
+                "monthly_budget": monthly_budget,
+                "baseline_payoff_date": baseline_payoff_date,
+                "baseline_total_interest": baseline_total_interest,
+            }
+        )
+        .execute()
+    )
+    r = result.data[0]
+    return DebtPlan(
+        id=r["id"],
+        user_id=r["user_id"],
+        strategy=r["strategy"],
+        monthly_budget=Decimal(str(r["monthly_budget"])),
+        baseline_payoff_date=date.fromisoformat(r["baseline_payoff_date"]),
+        baseline_total_interest=Decimal(str(r["baseline_total_interest"])),
+        status=r.get("status", "active"),
+        created_at=r.get("created_at"),
+    )
+
+
+async def update_debt_plan(plan_id: str, **fields: object) -> None:
+    """Update arbitrary fields on a debt plan."""
+    if not fields:
+        return
+    sb = get_supabase()
+    sb.table("debt_plans").update(dict(fields)).eq("id", plan_id).execute()
 
 
 # ── Tech projects (MakubeX — Phase CH-3) ───────────────────────────
