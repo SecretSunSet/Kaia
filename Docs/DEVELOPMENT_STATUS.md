@@ -8,7 +8,7 @@
 |-------|---------------|------------------------------------------------------------------|
 | R-1   | ✅ Complete   | `BaseAgent` runtime + design doc                                |
 | R-2   | ✅ Complete   | Concierge code split (`kaia/concierge/`)                        |
-| R-3   | ⏳ Planned    | Postgres LISTEN/NOTIFY bus + A2A protocol + peer_call demo      |
+| R-3   | ✅ Complete   | Postgres LISTEN/NOTIFY bus + A2A protocol + peer_call demo      |
 | R-4   | ⏳ Planned    | Per-bot Telegram tokens; separate Railway services              |
 | R-5   | ⏳ Planned    | Cross-expert weekly digest via concierge; full mesh             |
 

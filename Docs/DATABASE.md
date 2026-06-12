@@ -147,3 +147,47 @@ Indexed on `(user_id, is_active)`. Both tables have RLS enabled with the standar
 ### Cross-channel hand-off
 
 Hevn's extractor mirrors major financial facts (categories `income_info`, `debt_info`, `savings`, `retirement`, `insurance`, `goals`) from `channel_profile` to the shared `user_profile` table under category `"finances"` — so other experts (notably Kazuki in CH-4) can read the user's financial baseline.
+
+---
+
+## Agentic OS Bus Tables (Migration 006)
+
+Added in R-3. Written by `kaia/bus/postgres_transport.py` via asyncpg (not supabase-py).
+
+### `agent_conversations`
+
+One row per cross-agent conversation initiated by a user turn.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `conversation_id` | UUID | PK |
+| `user_id` | UUID | FK → users, ON DELETE CASCADE |
+| `started_by_agent` | VARCHAR(50) | e.g. `"hevn"` |
+| `intent_root` | VARCHAR(100) | Nullable; root intent if known |
+| `status` | VARCHAR(20) | `'open'` / `'closed'` / `'errored'`; default `'open'` |
+| `created_at` | TIMESTAMPTZ | — |
+| `closed_at` | TIMESTAMPTZ | Nullable |
+
+Indexed on `(user_id, created_at DESC)`.
+
+### `agent_messages`
+
+One row per envelope (request, reply, or error). The audit log and the R-4-ready transport.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `envelope_id` | UUID | PK |
+| `conversation_id` | UUID | FK → agent_conversations, ON DELETE CASCADE |
+| `from_agent` | VARCHAR(50) | — |
+| `to_agent` | VARCHAR(50) | — |
+| `user_id` | UUID | Denormalized for fast user lookups |
+| `intent` | VARCHAR(100) | e.g. `"smart_contract_risk"` |
+| `visibility` | VARCHAR(20) | `'user_visible'` (relayed to thread) / `'internal'` (logged only) |
+| `kind` | VARCHAR(20) | `'request'` / `'reply'` / `'error'` |
+| `reply_to` | UUID | Nullable; FK → agent_messages.envelope_id for reply/error correlation |
+| `payload` | JSONB | Intent-specific request or reply payload |
+| `created_at` | TIMESTAMPTZ | — |
+
+Indexed on `(conversation_id, created_at)` and partial-indexed on `(to_agent, created_at DESC) WHERE kind = 'request'`.
+
+Both tables have row-level security enabled with a `service_role_all` policy granting full access to the service role (the asyncpg pool uses the Supabase service-role credentials).

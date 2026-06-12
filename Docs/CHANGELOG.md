@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026-06-12] R-3 — Agentic OS Bus + A2A Protocol + Hevn↔MakubeX Demo
+
+### Added
+- **New `kaia/bus/` package.** Postgres LISTEN/NOTIFY-backed inter-agent bus:
+  - `Envelope` + `Visibility` (A2A wire format; round-trip serializers).
+  - `BusTransport` Protocol with `PostgresBusTransport` (asyncpg) for prod and `InMemoryBusTransport` for tests.
+  - `Bus` class: RPC peer_call with correlation map + 30s default timeout, per-agent dispatcher loop, intent-handler registry, user-visible relay channel.
+- **`BaseAgent.peer_call(...)` is now live.** Replaces the R-1 stub. New `PeerCallTimeoutError(PeerCallError)`. `BaseAgent.set_bus(bus)` classmethod for one-time injection at bot startup. New `_register_peer_intents()` hook subclasses override.
+- **MakubeX `smart_contract_risk` peer-intent handler.** Returns a structured risk profile (audits, TVL, depeg history, oracle/bridge risk, rating, caveats). JSON-fence-tolerant extractor for Claude's frequent ```json wrapping; payload-field sanitization against prompt injection.
+- **Hevn 3-step orchestrator.** Classifier LLM → optional `peer_call(makubex, smart_contract_risk)` → synthesis LLM. Graceful fallback to direct answer + transparency footer on `PeerCallError`. Key-presence guard prevents `KeyError` on malformed classifier output.
+- **Bot user-visible relay.** Subscribes to `bus:user_visible` and renders interleaved attribution messages (`💰 Hevn → 🔧 MakubeX (consult): …`) into the user's thread. Markdown escapes payload-derived strings to prevent Telegram parse-errors silently dropping messages.
+- **Migration `006_agent_bus.sql`.** Creates `agent_conversations` + `agent_messages` audit tables.
+
+### Changed
+- **`PeerCallError` base class** changes from `NotImplementedError` to `Exception` (R-1 used the NotImplementedError-subclass shape to advertise "not wired yet"; R-3 raises it on real runtime failures). No existing caller code depends on the prior inheritance.
+- **`bot/telegram_bot.py` post_init / post_shutdown** now start and stop the bus and the user-visible relay task. The bot **fails fast** on startup if `DATABASE_URL` is unset or Postgres is unreachable (R-3 invariant #1).
+- **Hevn's `handle()` is now a 3-step orchestrator.** The pre-Task-10 routing chain (first-visit onboarding, goal/bill/health/budget detection, persona response) is preserved verbatim inside `_direct_answer()` — non-consult paths run the identical R-1/R-2 behavior.
+
+### Migration notes
+- **Operator MUST apply `kaia/database/migrations/006_agent_bus.sql`** to the Supabase project via the SQL editor before deploying R-3. The bot will fail to start otherwise.
+- **Operator MUST set `DATABASE_URL`** in EC2's `/opt/kaia/app/kaia/.env` (Supabase → Project Settings → Database → Connection String). Use the connection pooler URL on port 6543 if available, else direct 5432.
+- The demo only fires on DeFi-flavored questions to Hevn. Non-DeFi questions hit the unchanged direct-answer path — R-3 is additive for non-demo users.
+
 ## [2026-05-16] R-2 — Agentic OS Concierge Code Split
 
 ### Added
