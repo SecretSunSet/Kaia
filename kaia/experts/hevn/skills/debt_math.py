@@ -52,3 +52,121 @@ class DebtInput:
     balance: Decimal
     monthly_rate: Decimal  # per-month fraction, e.g. Decimal("0.035")
     minimum_payment: Decimal
+
+
+@dataclass
+class DebtPayoff:
+    """One debt's payoff record inside a simulated plan."""
+
+    debt_id: str
+    name: str
+    payoff_month: int  # 1-based month index
+    payoff_date: date
+    interest_paid: Decimal
+
+
+@dataclass
+class PayoffPlan:
+    """Result of an amortize() run. Check .ok before reading numbers."""
+
+    ok: bool
+    error: str | None = None  # None | "shortfall" | "non_amortizing"
+    shortfall: Decimal | None = None
+    problem_debts: list[str] = field(default_factory=list)
+    months: int = 0
+    debt_free_date: date | None = None
+    total_interest: Decimal = Decimal("0")
+    payoffs: list[DebtPayoff] = field(default_factory=list)
+
+
+class _Account:
+    """Mutable per-debt state during simulation."""
+
+    __slots__ = ("debt", "balance", "interest")
+
+    def __init__(self, debt: DebtInput) -> None:
+        self.debt = debt
+        self.balance = debt.balance
+        self.interest = Decimal("0")
+
+
+def _pick_target(active: dict[str, "_Account"], strategy: str) -> "_Account":
+    accounts = [a for a in active.values() if a.balance > 0]
+    if strategy == "snowball":
+        # Smallest balance first; tie-break on higher rate.
+        return min(accounts, key=lambda a: (a.balance, -a.debt.monthly_rate))
+    # Avalanche: highest rate first; tie-break on smaller balance.
+    return min(accounts, key=lambda a: (-a.debt.monthly_rate, a.balance))
+
+
+def amortize(
+    debts: list[DebtInput],
+    monthly_budget: Decimal,
+    strategy: str,
+    start: date | None = None,
+) -> PayoffPlan:
+    """Simulate month-by-month payoff.
+
+    Each month: accrue interest, pay every debt its minimum, then send the
+    whole surplus to the strategy's target debt. Freed minimums roll into
+    the surplus automatically because the budget is a fixed total.
+    """
+    start = start or date.today()
+    active = {d.debt_id: _Account(d) for d in debts if d.balance > 0}
+    if not active:
+        return PayoffPlan(ok=True, months=0, debt_free_date=start)
+
+    min_sum = sum((a.debt.minimum_payment for a in active.values()), Decimal("0"))
+    if monthly_budget < min_sum:
+        return PayoffPlan(
+            ok=False, error="shortfall", shortfall=min_sum - monthly_budget
+        )
+
+    total_interest = Decimal("0")
+    payoffs: list[DebtPayoff] = []
+    month = 0
+    while active and month < MAX_MONTHS:
+        month += 1
+        for acct in active.values():
+            interest = (acct.balance * acct.debt.monthly_rate).quantize(_CENTS)
+            acct.balance += interest
+            acct.interest += interest
+            total_interest += interest
+
+        budget = monthly_budget
+        for acct in active.values():
+            pay = min(acct.debt.minimum_payment, acct.balance)
+            acct.balance -= pay
+            budget -= pay
+
+        while budget > 0 and any(a.balance > 0 for a in active.values()):
+            target = _pick_target(active, strategy)
+            pay = min(budget, target.balance)
+            target.balance -= pay
+            budget -= pay
+
+        for debt_id in [k for k, a in active.items() if a.balance <= 0]:
+            acct = active.pop(debt_id)
+            payoffs.append(
+                DebtPayoff(
+                    debt_id=acct.debt.debt_id,
+                    name=acct.debt.name,
+                    payoff_month=month,
+                    payoff_date=add_months(start, month),
+                    interest_paid=acct.interest,
+                )
+            )
+
+    if active:
+        return PayoffPlan(
+            ok=False,
+            error="non_amortizing",
+            problem_debts=sorted(a.debt.name for a in active.values()),
+        )
+    return PayoffPlan(
+        ok=True,
+        months=month,
+        debt_free_date=add_months(start, month),
+        total_interest=total_interest,
+        payoffs=payoffs,
+    )
