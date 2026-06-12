@@ -30,17 +30,20 @@ GOAL_VIEW_MARKERS = (
     "progress on my goals", "goal progress",
 )
 
-# Word-boundary regex prevents substring false positives ("owe" in "lower",
-# "loan" in nothing common — but \b keeps it honest). "pay off" is NOT here:
-# it collides with bill phrasing; payment messages reach debt via the AI
-# fallback instead.
-_DEBT_INTENT_RE = re.compile(
-    r"\b(debts?|owes?|owed|owing|utang|loans?|payoff)\b"
+# Action-oriented debt words always route to the debt skill — even inside
+# "how do I…" phrasing ("how do I get out of debt" is a debt request, not
+# an education question). Word boundaries prevent substring false positives
+# ("owe" in "lower"/"power").
+_DEBT_ACTION_RE = re.compile(
+    r"\b(debts?|owes?|owed|owing|utang|payoff)\b"
     r"|get out of debt|credit card balance"
 )
 
-# Conceptual/educational questions about debt instruments should reach the
-# education route further down the chain, not the debt-records skill.
+# Bare "loan(s)" is ambiguous: "what is a home loan" is education, while
+# "my SSS loan" is a debt record. Conceptual phrasing defers to the
+# education route further down the chain.
+_LOAN_RE = re.compile(r"\bloans?\b")
+
 _EDUCATION_DEFER_MARKERS = (
     "explain", "what is", "what's", "teach me", "learn about",
     "how does", "how do",
@@ -58,7 +61,9 @@ async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
     if any(m in low for m in ADVICE_MARKERS):
         return "general_chat"
 
-    if _DEBT_INTENT_RE.search(low) and not any(
+    if _DEBT_ACTION_RE.search(low):
+        return "debt"
+    if _LOAN_RE.search(low) and not any(
         m in low for m in _EDUCATION_DEFER_MARKERS
     ):
         return "debt"

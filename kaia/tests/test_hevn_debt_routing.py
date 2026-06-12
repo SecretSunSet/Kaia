@@ -114,7 +114,7 @@ async def test_debt_keywords_use_word_boundaries():
     ai.chat = AsyncMock(
         return_value=MagicMock(text='{"skill": "general_chat", "confidence": 0.8}')
     )
-    assert await classify_hevn_intent(ai, "what is the lowest rate available") != "debt"
+    assert await classify_hevn_intent(ai, "what is the lowest rate available") == "education"
     assert await classify_hevn_intent(ai, "show my power bill") == "bills"
 
 
@@ -130,4 +130,12 @@ async def test_educational_loan_questions_defer_to_education():
 async def test_pay_off_bill_phrasing_routes_to_bills():
     ai = MagicMock()
     assert await classify_hevn_intent(ai, "how do I pay off my Netflix bill") == "bills"
+    ai.chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_action_debt_requests_beat_education_deferral():
+    ai = MagicMock()
+    assert await classify_hevn_intent(ai, "how do I get out of debt") == "debt"
+    assert await classify_hevn_intent(ai, "how do I reduce my debt") == "debt"
     ai.chat.assert_not_called()
