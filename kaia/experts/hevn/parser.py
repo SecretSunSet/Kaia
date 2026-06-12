@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 
 from loguru import logger
@@ -29,6 +30,22 @@ GOAL_VIEW_MARKERS = (
     "progress on my goals", "goal progress",
 )
 
+# Word-boundary regex prevents substring false positives ("owe" in "lower",
+# "loan" in nothing common — but \b keeps it honest). "pay off" is NOT here:
+# it collides with bill phrasing; payment messages reach debt via the AI
+# fallback instead.
+_DEBT_INTENT_RE = re.compile(
+    r"\b(debts?|owes?|owed|owing|utang|loans?|payoff)\b"
+    r"|get out of debt|credit card balance"
+)
+
+# Conceptual/educational questions about debt instruments should reach the
+# education route further down the chain, not the debt-records skill.
+_EDUCATION_DEFER_MARKERS = (
+    "explain", "what is", "what's", "teach me", "learn about",
+    "how does", "how do",
+)
+
 
 async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
     """Classify a message into one of Hevn's skills."""
@@ -41,10 +58,9 @@ async def classify_hevn_intent(ai: AIEngine, message: str) -> str:
     if any(m in low for m in ADVICE_MARKERS):
         return "general_chat"
 
-    if any(p in low for p in (
-        "debt", "owe", "utang", "loan", "credit card balance",
-        "get out of debt", "pay off", "payoff",
-    )):
+    if _DEBT_INTENT_RE.search(low) and not any(
+        m in low for m in _EDUCATION_DEFER_MARKERS
+    ):
         return "debt"
 
     if any(p in low for p in (
