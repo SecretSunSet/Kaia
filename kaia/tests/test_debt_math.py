@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from experts.hevn.skills import debt_math
 from experts.hevn.skills.debt_math import DebtInput
 
@@ -21,13 +23,19 @@ def test_monthly_rate_divides_yearly_by_twelve():
     assert debt_math.monthly_rate(Decimal("24"), "yearly") == Decimal("0.02")
 
 
+def test_monthly_rate_rejects_unknown_period():
+    with pytest.raises(ValueError):
+        debt_math.monthly_rate(Decimal("3.5"), "annual")
+
+
 def test_add_months_rolls_year():
     assert debt_math.add_months(date(2026, 11, 15), 3) == date(2027, 2, 15)
 
 
 def test_add_months_clamps_day_to_28():
-    # Day 31 would not exist in Feb; clamp keeps dates valid in every month.
+    # Day 31 doesn't exist in Feb; clamp lands on the month's real last day.
     assert debt_math.add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
+    assert debt_math.add_months(date(2026, 3, 31), 1) == date(2026, 4, 30)
 
 
 def _debt(debt_id, name, balance, rate, minimum):
@@ -162,5 +170,16 @@ def test_recommend_snowball_when_savings_trivial_and_quick_win():
         _debt("b", "Loan B", 3000, 0.02, 300),
     ]
     comp = debt_math.compare_strategies(debts, Decimal("5000"), START)
+    assert comp.interest_saved_by_avalanche < debt_math.TRIVIAL_SAVINGS
     strategy, _reason = debt_math.recommend_strategy(comp)
     assert strategy == "snowball"
+
+
+def test_default_minimum_uses_percentage_when_above_floor():
+    # 3% of 20,000 = 600 > 500
+    assert debt_math.default_minimum(Decimal("20000")) == Decimal("600.00")
+
+
+def test_default_minimum_uses_floor_for_small_balances():
+    # 3% of 5,000 = 150 < 500
+    assert debt_math.default_minimum(Decimal("5000")) == Decimal("500")

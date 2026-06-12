@@ -7,6 +7,7 @@ The LLM never computes these numbers — it only narrates results.
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -24,6 +25,8 @@ _CENTS = Decimal("0.01")
 
 def monthly_rate(rate: Decimal, rate_period: str) -> Decimal:
     """Normalize a quoted percentage rate to a per-month fraction."""
+    if rate_period not in ("monthly", "yearly"):
+        raise ValueError(f"Unknown rate_period: {rate_period!r}")
     pct = rate / Decimal("100")
     if rate_period == "yearly":
         return pct / Decimal("12")
@@ -31,11 +34,12 @@ def monthly_rate(rate: Decimal, rate_period: str) -> Decimal:
 
 
 def add_months(d: date, months: int) -> date:
-    """Add calendar months; day-of-month clamped to 28 so it always exists."""
+    """Add calendar months; day-of-month clamped to the target month's last day."""
     month_index = d.month - 1 + months
     year = d.year + month_index // 12
     month = month_index % 12 + 1
-    return date(year, month, min(d.day, 28))
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
 
 
 def default_minimum(balance: Decimal) -> Decimal:
@@ -92,6 +96,7 @@ class _Account:
 
 def _pick_target(active: dict[str, "_Account"], strategy: str) -> "_Account":
     accounts = [a for a in active.values() if a.balance > 0]
+    assert accounts, "_pick_target called with no accounts with positive balance"
     if strategy == "snowball":
         # Smallest balance first; tie-break on higher rate.
         return min(accounts, key=lambda a: (a.balance, -a.debt.monthly_rate))
@@ -202,7 +207,10 @@ def recommend_strategy(comp: StrategyComparison) -> tuple[str, str]:
     """Deterministic recommendation: avalanche unless its savings are
     trivial AND snowball delivers a faster first win."""
     if not (comp.avalanche.ok and comp.snowball.ok):
-        return "avalanche", "Pay the highest-rate debt first."
+        return "avalanche", (
+            "A full comparison wasn't possible here — paying the "
+            "highest-rate debt first is the safe default."
+        )
     first_av = comp.avalanche.payoffs[0].payoff_month if comp.avalanche.payoffs else 0
     first_sn = comp.snowball.payoffs[0].payoff_month if comp.snowball.payoffs else 0
     if comp.interest_saved_by_avalanche <= TRIVIAL_SAVINGS and first_sn < first_av:
