@@ -221,16 +221,13 @@ Proactive paths:
 
 KAIA is evolving from a single-bot architecture with internal "expert channels" into a **mesh of independent agent bots** coordinated by a slim concierge. See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
 
-**Current state (R-2, 2026-05-16):**
-- `kaia/agent_runtime/BaseAgent` is the base class for all agents (R-1).
-- `kaia/concierge/` owns KAIA's general (non-expert) conversation turn
-  (`Concierge.handle_general_turn`) and the `/start` greeting
-  (`welcome_text`). `bot/telegram_bot.py` is now a thin Telegram transport
-  over the concierge; the previously duplicated text/voice general-flow
-  block is unified.
-- Expert first-visit onboarding still lives with each expert
-  (`BaseAgent.generate_onboarding`) — unchanged by R-2.
-- No user-visible changes.
+**Current state (R-3, 2026-06-12):**
+- `kaia/agent_runtime/BaseAgent` is the base class for all agents (R-1). `peer_call(...)` is now a live RPC over the bus (R-3); raises `PeerCallError`/`PeerCallTimeoutError` on failure.
+- `kaia/concierge/` owns KAIA's general (non-expert) conversation turn and the `/start` greeting (R-2). `bot/telegram_bot.py` is a thin Telegram transport over the concierge.
+- `kaia/bus/` is the R-3 inter-agent bus: `PostgresBusTransport` (asyncpg LISTEN/NOTIFY against Supabase) + transport-agnostic `Bus` (RPC correlation, 30s default timeout, future map). `InMemoryBusTransport` makes the bus logic unit-testable without asyncpg.
+- Hevn↔MakubeX peer-call demo is live on the `smart_contract_risk` intent: user asks Hevn about DeFi, Hevn classifier triggers a `peer_call`, MakubeX answers, Hevn synthesizes — user sees 3 attribution-prefixed messages in the thread.
+- Expert first-visit onboarding still expert-owned — unchanged by R-3.
+- First **user-visible** Agentic OS feature.
 
 **Pending phases:**
 

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TYPE_CHECKING
+from uuid import UUID
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from bus.bus import Bus, PeerIntentHandler
 
 from agent_runtime.context import AgentContext
 from config.settings import get_settings
@@ -25,8 +29,12 @@ from skills.base import SkillResult
 from utils.time_utils import format_relative_time
 
 
-class PeerCallError(NotImplementedError):
-    """Raised when an agent attempts a peer call before the R-3 bus lands."""
+class PeerCallError(Exception):
+    """Base error for failures in BaseAgent.peer_call (R-3)."""
+
+
+class PeerCallTimeoutError(PeerCallError):
+    """Raised when a peer_call exceeds its timeout budget (R-3)."""
 
 
 class BaseAgent(ABC):
@@ -40,10 +48,23 @@ class BaseAgent(ABC):
     # Subclasses set this. `agent_id` reads it; both names are supported.
     channel_id: str = ""
 
+    # Class-level bus slot — set once by the bot at post_init via BaseAgent.set_bus(bus).
+    # Class-level (not instance-level) so all agent instances share the same bus
+    # without needing the get_expert(...) factory to thread it.
+    _bus: "Bus | None" = None  # noqa: F821  (Bus imported lazily in peer_call to avoid cycle)
+
+    @classmethod
+    def set_bus(cls, bus: "Bus | None") -> None:
+        """Inject the process-wide bus. The bot calls this once at post_init."""
+        cls._bus = bus
+
     def __init__(self, ai_engine: AIEngine) -> None:
         self.ai = ai_engine
         self._channel_mgr = ChannelManager()
         self._channel_mem = ChannelMemoryManager()
+        # R-3: bind inbound peer-intent handlers if a bus is available.
+        if self._bus is not None:
+            self._register_peer_intents()
 
     # ── Identity ────────────────────────────────────────────────────
 
@@ -72,19 +93,54 @@ class BaseAgent(ABC):
         visibility are preserved."""
         return await self.handle(ctx.user, ctx.message, ctx.channel)
 
-    # ── Peer-to-peer (stub until R-3) ──────────────────────────────
+    # ── Peer-to-peer (R-3) ─────────────────────────────────────────
+
+    def _register_peer_intents(self) -> None:
+        """Override in subclasses to register inbound peer-intent handlers
+        via self._bus.register_handler(self.agent_id, intent, async_handler)."""
+        pass
+
+    def register_peer_intent(self, intent: str, handler: "PeerIntentHandler") -> None:
+        """Register an inbound peer-intent handler on the bus."""
+        if self._bus is None:
+            raise PeerCallError("register_peer_intent requires the bus to be initialised")
+        self._bus.register_handler(self.agent_id, intent, handler)
 
     async def peer_call(
         self,
         target_agent_id: str,
         intent: str,
         payload: dict[str, Any],
+        *,
+        user_id: UUID,
+        visibility=None,  # bus.Visibility, optional
+        timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Send a message to another agent. Lands in R-3."""
-        raise PeerCallError(
-            f"peer_call({target_agent_id!r}, {intent!r}, ...) is not wired yet. "
-            "Inter-agent messaging arrives in phase R-3 (Postgres LISTEN/NOTIFY). "
-            "See Docs/AGENTIC_OS/DESIGN.md."
+        """Send a request to another agent; await its reply payload.
+
+        Raises:
+            PeerCallTimeoutError: budget exhausted.
+            PeerCallError: peer raised, or bus not initialised.
+        """
+        if self._bus is None:
+            raise PeerCallError(
+                "peer_call requires the bus to be initialised — "
+                "bot post_init did not call BaseAgent.set_bus(bus)"
+            )
+        # Lazy import to avoid bus → agent_runtime → bus cycle at module load.
+        from bus import Visibility as _Visibility
+        # NOTE(R-4): conversation_id is not forwarded — each BaseAgent.peer_call
+        # starts a new conversation on the bus. Multi-hop consults (e.g.
+        # MakubeX → Kazuki while answering Hevn) will need this threaded
+        # through; not in scope for R-3.
+        return await self._bus.peer_call(
+            source=self.agent_id,
+            target=target_agent_id,
+            intent=intent,
+            payload=payload,
+            user_id=user_id,
+            visibility=visibility if visibility is not None else _Visibility.USER_VISIBLE,
+            timeout=timeout,
         )
 
     # ── History / persistence (verbatim from BaseExpert) ───────────

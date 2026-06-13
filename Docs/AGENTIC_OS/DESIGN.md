@@ -1,7 +1,7 @@
 # Agentic OS — Design
 
-> Status: R-2 (concierge code split) — in progress. R-1 shipped.
-> Owner: EJay. Last updated: 2026-05-16.
+> Status: R-3 (bus + A2A protocol + peer-call demo) — in progress. R-1, R-2 shipped.
+> Owner: EJay. Last updated: 2026-06-09.
 
 ## Goal
 

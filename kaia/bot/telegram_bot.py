@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import sys
 import tempfile
+from uuid import UUID
 
 from loguru import logger
 from telegram import Update
@@ -29,9 +32,12 @@ from core.channel_memory import ChannelMemoryManager
 from core.expert_detector import clear_suggestion_history
 from core.forum_manager import ForumManager, ForumSetupError
 from core.scheduler import start_scheduler, shutdown_scheduler, handle_snooze, handle_dismiss
+from agent_runtime.base_agent import BaseAgent
+from bus import Bus, Envelope, PostgresBusTransport
 from database.queries import (
     get_or_create_user,
     get_channel_profile,
+    get_user_by_id,
 )
 from bot.commands import cmd_status_extended, cmd_export, cmd_reset, handle_reset_confirmation
 from bot.hevn_commands import (
@@ -67,6 +73,11 @@ channel_mgr = ChannelManager()
 channel_mem = ChannelMemoryManager()
 forum_mgr = ForumManager()
 concierge = Concierge(ai_engine, skill_router=skill_router, memory_mgr=memory_mgr)
+
+# R-3 bus globals
+_bus: "Bus | None" = None
+_user_visible_task: "asyncio.Task | None" = None
+_AGENT_DISPLAY_CACHE: dict[str, tuple[str, str]] = {}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -747,17 +758,154 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ── Post-init: start scheduler ───────────────────────────────────────
 
 async def post_init(application: Application) -> None:
-    """Called after the Application is initialised — start scheduler, cleanup."""
+    """Called after the Application is initialised — start bus, scheduler, cleanup."""
     bot = application.bot
+
+    # R-3: start the bus FIRST — fail fast if Postgres is unreachable.
+    global _bus, _user_visible_task
+    if not settings.database_url:
+        raise RuntimeError(
+            "R-3: DATABASE_URL is not set — bus cannot start. "
+            "Set it in /opt/kaia/app/kaia/.env (Supabase → Project Settings → "
+            "Database → Connection String) and restart."
+        )
+    transport = PostgresBusTransport(settings.database_url)
+    await transport.start()
+    _bus = Bus(transport=transport, default_timeout=settings.r3_peer_call_timeout_seconds)
+    BaseAgent.set_bus(_bus)
+    await _bus.start()
+
+    _user_visible_task = asyncio.create_task(
+        _relay_user_visible_envelopes(bot), name="bus-user-visible-relay"
+    )
+
+    # ── existing R-1/R-2 post_init body — preserve unchanged ──
     set_bot(bot)
     await start_scheduler(bot)
     cleanup_old_files()  # Clean up any stale TTS files from previous runs
-    logger.info("Post-init complete: scheduler started, bot reference stored")
+    logger.info("Post-init complete: scheduler started, bus running, relay active")
 
 
 async def post_shutdown(application: Application) -> None:
     """Called when the Application shuts down."""
+    global _bus, _user_visible_task
+    # R-3: cancel relay first, then stop the bus, then the existing scheduler.
+    if _user_visible_task is not None:
+        _user_visible_task.cancel()
+        try:
+            await _user_visible_task
+        except asyncio.CancelledError:
+            pass
+        _user_visible_task = None
+    if _bus is not None:
+        await _bus.shutdown()
+        tx = _bus.transport
+        if hasattr(tx, "shutdown"):
+            await tx.shutdown()
+        _bus = None
+    # ── existing R-1/R-2 post_shutdown body ──
     shutdown_scheduler()
+
+
+# ── R-3: user-visible envelope relay ──────────────────────────────
+
+
+async def _agent_display(agent_id: str) -> tuple[str, str]:
+    """Return (emoji, character_name) for an agent_id. Cached.
+
+    Reads from the `channels` table (populated by migration 002 — covers
+    hevn, kazuki, akabane, makubex). Unknown agent IDs fall back to a
+    generic 🤖 emoji and title-cased agent_id."""
+    if agent_id in _AGENT_DISPLAY_CACHE:
+        return _AGENT_DISPLAY_CACHE[agent_id]
+    info = await channel_mgr.get_channel_info(agent_id)
+    if info is None:
+        display = ("🤖", agent_id.title())
+    else:
+        display = (info.emoji or "🤖", info.character_name or agent_id.title())
+    _AGENT_DISPLAY_CACHE[agent_id] = display
+    return display
+
+
+def _md_escape(text: str) -> str:
+    """Escape Telegram Markdown (V1) special chars in dynamic content.
+
+    Conservative: escapes the four format-significant chars `*`, `_`,
+    `[`, and `` ` ``. Used only on payload-derived strings inside the
+    R-3 attribution relay; the rest of the bot's text rendering is
+    written by humans who already know the markdown contract.
+    """
+    return (
+        text.replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("_", "\\_")
+        .replace("[", "\\[")
+        .replace("`", "\\`")
+    )
+
+
+def _format_reply_payload(payload: dict) -> str:
+    """Pretty-print a peer reply payload as Markdown bullets.
+
+    Handles structured fields like `caveats: list[str]` specially; falls
+    back to a generic key/value bullet for other types."""
+    lines = []
+    for key, val in payload.items():
+        if key == "caveats" and isinstance(val, list):
+            joined = "; ".join(_md_escape(str(item)) for item in val)
+            lines.append(f"- *Caveats:* {joined}")
+        elif isinstance(val, (dict, list)):
+            lines.append(f"- *{_md_escape(key.replace('_', ' ').title())}:* {_md_escape(json.dumps(val))}")
+        else:
+            label = _md_escape(key.replace("_", " ").title())
+            lines.append(f"- *{label}:* {_md_escape(str(val))}")
+    return "\n".join(lines)
+
+
+async def _render_envelope_to_user(bot, env: Envelope) -> None:
+    """Render one user-visible envelope as an attribution message in the
+    originating user's private chat with the bot."""
+    user = await get_user_by_id(env.user_id)
+    if user is None:
+        logger.warning("user_visible relay: no user for envelope {}", env.envelope_id)
+        return
+    from_emoji, from_name = await _agent_display(env.from_agent)
+    to_emoji, to_name = await _agent_display(env.to_agent)
+    # Names from the channels table can contain markdown chars too — escape.
+    from_name = _md_escape(from_name)
+    to_name = _md_escape(to_name)
+    if env.kind == "request":
+        body = env.payload.get("context") or env.payload.get("question") or json.dumps(env.payload)
+        text = f"{from_emoji} *{from_name}* → {to_emoji} *{to_name}* (consult): {_md_escape(body)}"
+    elif env.kind == "reply":
+        body = _format_reply_payload(env.payload) or "_no content_"
+        text = f"{to_emoji} *{to_name}* → {from_emoji} *{from_name}* (reply):\n{body}"
+    else:  # error
+        err = env.payload.get("error", "unknown")
+        text = f"⚠️ *{to_name}* → *{from_name}* (error): {_md_escape(str(err))}"
+    await bot.send_message(chat_id=user.telegram_id, text=truncate(text), parse_mode="Markdown")
+
+
+async def _relay_user_visible_envelopes(bot) -> None:
+    """Background task: subscribes to bus:user_visible and renders
+    attribution messages into each envelope's originating user's Telegram
+    thread. Loop is loud-on-failure (logs but does NOT silently drop —
+    R-3 invariant #2)."""
+    assert _bus is not None
+    transport = _bus.transport
+    try:
+        async for envelope_id_str in transport.subscribe("bus:user_visible"):
+            try:
+                env = await transport.fetch_envelope(UUID(envelope_id_str))
+                if env is None:
+                    logger.debug("user_visible relay: no envelope {}", envelope_id_str)
+                    continue
+                await _render_envelope_to_user(bot, env)
+            except Exception:
+                logger.exception("user_visible relay: render failed for {}", envelope_id_str)
+                # Keep the loop alive — R-3 invariant #2: never silently drop.
+    except asyncio.CancelledError:
+        return
 
 
 # ── Application setup & run ──────────────────────────────────────────
