@@ -447,6 +447,97 @@ async def _fire_hevn_digest(user_id: str, telegram_id: int, bot: Bot) -> None:
         logger.error("Failed to send Hevn digest to {}: {}", telegram_id, exc)
 
 
+# ── Hevn Debt Coach reminders (Phase D-1) ──────────────────────────
+
+async def schedule_debt_reminders(
+    user_id: str,
+    telegram_id: int,
+    timezone: str = "Asia/Manila",
+    bot: Bot | None = None,
+) -> None:
+    """Daily 9 AM due-date nudge check + monthly progress review.
+
+    Idempotent: replace_existing=True, so calling after every debt turn
+    keeps jobs alive across restarts without a persistent job store.
+    """
+    scheduler = get_scheduler()
+    the_bot = bot or _bot_ref
+    if the_bot is None:
+        logger.warning("Cannot schedule debt reminders — no bot reference")
+        return
+
+    scheduler.add_job(
+        _fire_debt_nudge,
+        trigger=CronTrigger(hour=9, minute=0, timezone=ZoneInfo(timezone)),
+        id=f"debt_nudge_{user_id}",
+        args=[user_id, telegram_id, the_bot],
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _fire_debt_review,
+        trigger=CronTrigger(day=1, hour=9, minute=30, timezone=ZoneInfo(timezone)),
+        id=f"debt_review_{user_id}",
+        args=[user_id, telegram_id, the_bot],
+        replace_existing=True,
+    )
+    logger.info("Debt reminders scheduled for user {} ({})", user_id, timezone)
+
+
+async def cancel_debt_reminders(user_id: str) -> None:
+    """Remove a user's debt nudge + review jobs."""
+    scheduler = get_scheduler()
+    for job_id in (f"debt_nudge_{user_id}", f"debt_review_{user_id}"):
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+    logger.info("Debt reminders cancelled for user {}", user_id)
+
+
+async def _fire_debt_nudge(user_id: str, telegram_id: int, bot: Bot) -> None:
+    """Daily check: send a nudge only when a due date is 3 days out."""
+    try:
+        from experts.hevn.skills.proactive import ProactiveAlertsSkill
+        from core.forum_manager import ForumManager
+
+        user = await get_or_create_user(telegram_id)
+        skill = ProactiveAlertsSkill()
+        text = await skill.generate_debt_nudges(user.id, currency=user.currency or "PHP")
+        if text is None:
+            return
+
+        forum_mgr = ForumManager()
+        topic_id = await forum_mgr.get_topic_for_channel(telegram_id, "hevn")
+        kwargs: dict = {"parse_mode": "Markdown"}
+        if topic_id is not None:
+            kwargs["message_thread_id"] = topic_id
+        await bot.send_message(chat_id=telegram_id, text=text, **kwargs)
+    except Exception as exc:
+        logger.error("Failed to send debt nudge to {}: {}", telegram_id, exc)
+
+
+async def _fire_debt_review(user_id: str, telegram_id: int, bot: Bot) -> None:
+    """Monthly debt progress review (1st of the month, 9:30 AM)."""
+    try:
+        from experts.hevn.skills.proactive import ProactiveAlertsSkill
+        from core.forum_manager import ForumManager
+
+        user = await get_or_create_user(telegram_id)
+        skill = ProactiveAlertsSkill()
+        text = await skill.generate_debt_monthly_review(
+            user.id, currency=user.currency or "PHP"
+        )
+        if text is None:
+            return
+
+        forum_mgr = ForumManager()
+        topic_id = await forum_mgr.get_topic_for_channel(telegram_id, "hevn")
+        kwargs: dict = {"parse_mode": "Markdown"}
+        if topic_id is not None:
+            kwargs["message_thread_id"] = topic_id
+        await bot.send_message(chat_id=telegram_id, text=text, **kwargs)
+    except Exception as exc:
+        logger.error("Failed to send debt review to {}: {}", telegram_id, exc)
+
+
 # ── MakubeX Weekly Tech Brief ──────────────────────────────────────
 
 async def schedule_makubex_weekly_brief(

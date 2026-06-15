@@ -9,6 +9,7 @@ from loguru import logger
 from config.constants import CURRENCY_SYMBOLS
 from database import queries as db
 from experts.hevn.skills.bills_tracker import BillsTrackerSkill
+from experts.hevn.skills.debt_coach import DebtCoachSkill
 from experts.hevn.skills.goals_manager import GoalsManagerSkill
 from experts.hevn.skills.health_assessment import FinancialHealthSkill
 
@@ -18,6 +19,7 @@ class ProactiveAlertsSkill:
 
     def __init__(self) -> None:
         self._bills = BillsTrackerSkill()
+        self._debt = DebtCoachSkill()
         self._goals = GoalsManagerSkill()
         self._health = FinancialHealthSkill()
 
@@ -111,6 +113,44 @@ class ProactiveAlertsSkill:
         lines.append(f"💡 _Tip:_ {_tip_of_the_week(today)}")
 
         return "\n".join(lines)
+
+    async def generate_debt_nudges(
+        self, user_id: str, days_ahead: int = 3, currency: str = "PHP"
+    ) -> str | None:
+        """Due-date nudge for debts whose due_day is exactly days_ahead away.
+
+        Returns None when nothing is due (caller sends no message).
+        """
+        symbol = CURRENCY_SYMBOLS.get(currency, currency)
+        target = date.today() + timedelta(days=days_ahead)
+        debts = await db.get_debts(user_id, status="active")
+        due = [d for d in debts if d.due_day == target.day]
+        if not due:
+            return None
+        lines = ["⏰ *Debt payment heads-up*", ""]
+        for d in due:
+            amount = (
+                f"{symbol}{float(d.minimum_payment):,.0f} minimum"
+                if d.minimum_payment
+                else "your payment"
+            )
+            lines.append(
+                f"• *{d.name}* — {amount} due {target.strftime('%b %d')} "
+                f"(day {d.due_day})"
+            )
+        lines.append("")
+        lines.append("Pay on time = zero late fees + your plan stays on track. 💪")
+        return "\n".join(lines)
+
+    async def generate_debt_monthly_review(
+        self, user_id: str, currency: str = "PHP"
+    ) -> str | None:
+        """Monthly progress review. None when there is no active plan."""
+        plan = await db.get_active_debt_plan(user_id)
+        if plan is None:
+            return None
+        progress = await self._debt.format_progress(user_id, currency)
+        return f"🗓️ *Monthly debt check-in*\n\n{progress}"
 
     async def check_spending_alerts(
         self, user_id: str, currency: str = "PHP"

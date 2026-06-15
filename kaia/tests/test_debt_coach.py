@@ -381,3 +381,33 @@ def test_hevn_expert_has_debt_skill():
     ai = MagicMock()
     hevn = HevnExpert(ai_engine=ai)
     assert isinstance(hevn.debt, DebtCoachSkill)
+
+
+from experts.hevn.skills.proactive import ProactiveAlertsSkill
+
+
+@pytest.mark.asyncio
+async def test_debt_nudge_fires_three_days_before_due(monkeypatch):
+    skill = ProactiveAlertsSkill()
+    target_day = (date.today() + __import__("datetime").timedelta(days=3)).day
+    monkeypatch.setattr(
+        "experts.hevn.skills.proactive.db.get_debts",
+        AsyncMock(return_value=[
+            _debt(due_day=target_day, minimum_payment=Decimal("2250"))
+        ]),
+    )
+    text = await skill.generate_debt_nudges("u1", currency="PHP")
+    assert text is not None
+    assert "BPI Credit Card" in text
+    assert "2,250" in text
+
+
+@pytest.mark.asyncio
+async def test_debt_nudge_quiet_when_nothing_due(monkeypatch):
+    skill = ProactiveAlertsSkill()
+    far_day = (date.today() + __import__("datetime").timedelta(days=10)).day
+    monkeypatch.setattr(
+        "experts.hevn.skills.proactive.db.get_debts",
+        AsyncMock(return_value=[_debt(due_day=far_day)]),
+    )
+    assert await skill.generate_debt_nudges("u1", currency="PHP") is None
