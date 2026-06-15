@@ -1,13 +1,20 @@
 # Changelog
 
-## 2026-06-15 — D-1: Hevn Debt Coach
+## [2026-06-15] D-1 — Hevn Debt Coach
 
-- NEW: guided debt audit ("help me get out of debt") capturing debts one at a time
-- NEW: avalanche vs snowball payoff plans with real amortization math (LLM-free)
-- NEW: payment logging via chat ("paid 5k on my BPI card") with payoff celebrations
-- NEW: due-date nudges (3 days ahead) and monthly progress reviews
-- NEW: tables `debts`, `debt_payments`, `debt_plans` (migration 007)
-- CHANGED: Hevn's system prompt now includes a debts summary + PH debt-counseling expertise
+### Added
+- **Guided debt audit.** "Help me get out of debt" runs a one-debt-at-a-time intake (lender → balance → rate → minimum → due day). Unknown rates apply labeled PH type-defaults (`rate_is_estimate`); each completed debt persists immediately; the audit is resumable and cancellable.
+- **Deterministic payoff engine (`experts/hevn/skills/debt_math.py`).** Pure-Python amortization (no LLM, no I/O): computes both avalanche and snowball plans, the peso interest delta, and a recommendation. Detects budget shortfalls and non-amortizing debts.
+- **`DebtCoachSkill` — Hevn's 8th skill.** Plan creation/selection, chat payment logging ("paid 5k on my BPI card") with payoff celebrations, and progress recomputed from live balances vs the baseline (ahead/behind in months).
+- **Proactive accountability.** Due-date nudges 3 days ahead (daily 09:00 check) and a monthly progress review (1st, 09:30), scheduled via `core/scheduler.py`.
+- **Migration `007_hevn_debt.sql`.** Creates `debts`, `debt_payments`, `debt_plans`.
+
+### Changed
+- **Hevn's system prompt** now includes a debts summary and PH debt-counseling expertise (credit-card add-on rates, 5-6 lending, Pag-IBIG/SSS loans, balance transfer, consolidation).
+- **Hevn intent routing** gains a `debt` route (word-boundary matched; defers conceptual loan questions to education).
+
+### Migration notes
+- **Operator MUST apply `kaia/database/migrations/007_hevn_debt.sql`** to the Supabase project via the SQL editor before deploying D-1. Debt features will error until the tables exist.
 
 ## [2026-06-12] R-3 — Agentic OS Bus + A2A Protocol + Hevn↔MakubeX Demo
 
