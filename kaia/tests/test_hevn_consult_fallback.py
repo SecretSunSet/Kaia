@@ -55,6 +55,7 @@ def _patch_db_helpers(hevn: HevnExpert) -> None:
     hevn.get_conversation_history = AsyncMock(return_value=[])
     hevn._budget_summary = AsyncMock(return_value="(no transactions logged this month)")
     hevn.goals.format_goals_overview = AsyncMock(return_value="(no goals)")
+    hevn.debt.debts_summary = AsyncMock(return_value="")
     hevn._channel_mem.get_top_gap = MagicMock(return_value=None)
     # is_first_visit → False so we skip onboarding and exercise routing
     hevn._channel_mgr.is_first_visit = AsyncMock(return_value=False)

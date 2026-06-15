@@ -26,11 +26,11 @@ from experts.hevn.prompts import (
 )
 from experts.hevn.skills.bills_tracker import BillsTrackerSkill
 from experts.hevn.skills.budget_coaching import BudgetCoachingSkill
+from experts.hevn.skills.debt_coach import DebtCoachSkill
 from experts.hevn.skills.education import EducationSkill
 from experts.hevn.skills.goals_manager import GoalsManagerSkill
 from experts.hevn.skills.health_assessment import FinancialHealthSkill
 from experts.hevn.skills.market_trends import MarketTrendsSkill
-from experts.hevn.skills.debt_coach import DebtCoachSkill
 from experts.hevn.skills.proactive import ProactiveAlertsSkill
 from skills.base import SkillResult
 
