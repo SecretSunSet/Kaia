@@ -495,6 +495,7 @@ async def cancel_debt_reminders(user_id: str) -> None:
 async def _fire_debt_nudge(user_id: str, telegram_id: int, bot: Bot) -> None:
     """Daily check: send a nudge only when a due date is 3 days out."""
     try:
+        logger.info("Firing debt nudge for user {} (tg={})", user_id, telegram_id)
         from experts.hevn.skills.proactive import ProactiveAlertsSkill
         from core.forum_manager import ForumManager
 
@@ -517,6 +518,7 @@ async def _fire_debt_nudge(user_id: str, telegram_id: int, bot: Bot) -> None:
 async def _fire_debt_review(user_id: str, telegram_id: int, bot: Bot) -> None:
     """Monthly debt progress review (1st of the month, 9:30 AM)."""
     try:
+        logger.info("Firing debt review for user {} (tg={})", user_id, telegram_id)
         from experts.hevn.skills.proactive import ProactiveAlertsSkill
         from core.forum_manager import ForumManager
 
