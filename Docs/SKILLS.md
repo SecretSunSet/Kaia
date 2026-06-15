@@ -79,7 +79,7 @@ Each phase replaces `PlaceholderExpert` in the registry with the specialized cla
 Replaces `PlaceholderExpert` with `HevnExpert` (`experts/hevn/expert.py`). Routing on every message:
 
 1. **First-visit onboarding** — in-character intro, asks for income to bootstrap the profile; schedules the weekly digest.
-2. **Intent classification** (`experts/hevn/parser.py`) — keyword short-circuit with AI JSON fallback, across 7 intents.
+2. **Intent classification** (`experts/hevn/parser.py`) — keyword short-circuit with AI JSON fallback, across 8 intents.
 3. **Specialized routes** — for `health_assessment`, `goals`, `bills`, `budget_coaching` Hevn calls the skill directly and returns a deterministic, numbers-backed response.
 4. **Persona-driven response** — for `market_trends`, `education`, `general_chat` Hevn replies via the AI with a system prompt enriched by the user's budget summary, goals overview, and current knowledge gap.
 5. **Fire-and-forget extraction** — `hevn_extract_and_save` extracts financial facts into `channel_profile` and mirrors income/debt/savings/retirement/insurance/goals into the shared `user_profile` under category `"finances"`.

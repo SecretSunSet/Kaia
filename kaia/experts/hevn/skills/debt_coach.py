@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from config.constants import CURRENCY_SYMBOLS
 from database import queries as db
+from loguru import logger
 from database.models import Debt
 from experts.hevn.skills import debt_math
 from experts.hevn.skills.debt_math import DebtInput
@@ -115,6 +116,11 @@ class DebtCoachSkill:
 
         if not debts and plan:
             await db.update_debt_plan(plan.id, status="completed")
+            try:
+                from core.scheduler import cancel_debt_reminders
+                await cancel_debt_reminders(user_id)
+            except Exception as exc:
+                logger.warning("Failed to cancel debt reminders: {}", exc)
             return (
                 "🎉 *You are DEBT-FREE!* Every debt on your plan is paid off. "
                 "I'm genuinely proud of you. Next: let's redirect that monthly "
@@ -350,6 +356,7 @@ class DebtCoachSkill:
         # Sanity: cap absurd monthly rates rather than store garbage.
         rate = session.current.get("interest_rate")
         if rate is not None and Decimal(str(rate)) > MAX_MONTHLY_RATE:
+            # Drop only the bad rate; any other fields parsed this turn are kept.
             del session.current["interest_rate"]
             return (
                 f"That rate looks unusually high (above {MAX_MONTHLY_RATE}%/mo). "

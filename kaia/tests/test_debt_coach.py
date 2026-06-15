@@ -411,3 +411,106 @@ async def test_debt_nudge_quiet_when_nothing_due(monkeypatch):
         AsyncMock(return_value=[_debt(due_day=far_day)]),
     )
     assert await skill.generate_debt_nudges("u1", currency="PHP") is None
+
+
+@pytest.mark.asyncio
+async def test_audit_two_debts_then_plan(monkeypatch):
+    """The collect→more→collect→more→budget loop must capture BOTH debts."""
+    skill = DebtCoachSkill()
+    user = _user()
+    created: list[dict] = []
+
+    async def fake_create_debt(**kw):
+        created.append(kw)
+        return _debt(id=f"new-{len(created)}", name=kw["name"],
+                     balance=Decimal(str(kw["balance"])),
+                     minimum_payment=Decimal(str(kw["minimum_payment"])))
+
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.create_debt", fake_create_debt
+    )
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.get_debts",
+        AsyncMock(return_value=[
+            _debt(id="new-1", name="BPI Card", balance=Decimal("45000"),
+                  interest_rate=Decimal("3.5"), minimum_payment=Decimal("2250")),
+            _debt(id="new-2", name="SSS Loan", balance=Decimal("20000"),
+                  interest_rate=Decimal("0.83"), minimum_payment=Decimal("1000")),
+        ]),
+    )
+    plan_created: list[dict] = []
+
+    async def fake_create_plan(**kw):
+        plan_created.append(kw)
+        return _plan(strategy=kw["strategy"])
+
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.create_debt_plan", fake_create_plan
+    )
+
+    skill.start_audit(user.id)
+    # Debt 1 in one shot
+    await skill.continue_audit(_ai_seq([{
+        "name": "BPI Card", "debt_type": "credit_card", "balance": 45000,
+        "interest_rate": 3.5, "rate_period": "monthly",
+        "minimum_payment": 2250, "due_day": 15,
+    }]), user, "BPI card 45k 3.5% monthly min 2250 due 15", "PHP")
+    # Yes, another debt -> back to collect, then debt 2 in one shot
+    reply = await skill.continue_audit(_ai_seq([{
+        "name": None, "debt_type": None, "balance": None, "interest_rate": None,
+        "rate_period": None, "minimum_payment": None, "due_day": None,
+    }]), user, "yes", "PHP")
+    await skill.continue_audit(_ai_seq([{
+        "name": "SSS Loan", "debt_type": "sss_loan", "balance": 20000,
+        "interest_rate": 0.83, "rate_period": "monthly",
+        "minimum_payment": 1000, "due_day": 5,
+    }]), user, "SSS loan 20k 0.83% monthly min 1000 due 5", "PHP")
+    # No more -> budget
+    await skill.continue_audit(MagicMock(), user, "no", "PHP")
+    # Budget -> comparison
+    await skill.continue_audit(_ai_seq([{"amount": 10000}]), user, "10k", "PHP")
+    # Strategy -> plan
+    await skill.continue_audit(MagicMock(), user, "avalanche", "PHP")
+
+    assert len(created) == 2
+    assert {c["name"] for c in created} == {"BPI Card", "SSS Loan"}
+    assert plan_created and plan_created[0]["strategy"] == "avalanche"
+    assert not skill.has_session(user.id)
+
+
+@pytest.mark.asyncio
+async def test_format_progress_on_schedule(monkeypatch):
+    skill = DebtCoachSkill()
+    # baseline equals what amortize will project from these inputs ->
+    # we just assert the on-schedule/behind/ahead line is present and sane.
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.get_debts",
+        AsyncMock(return_value=[_debt(balance=Decimal("45000"))]),
+    )
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.get_active_debt_plan",
+        AsyncMock(return_value=_plan(baseline_payoff_date=date(2026, 1, 1))),
+    )
+    text = await skill.format_progress("u1", "PHP")
+    # Baseline is in the past vs a fresh projection -> user is "behind".
+    assert "behind" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_debt_free_cancels_reminders(monkeypatch):
+    skill = DebtCoachSkill()
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.get_debts", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.get_active_debt_plan",
+        AsyncMock(return_value=_plan()),
+    )
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.update_debt_plan", AsyncMock()
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr("core.scheduler.cancel_debt_reminders", cancel)
+    text = await skill.format_progress("u1", "PHP")
+    assert "DEBT-FREE" in text
+    cancel.assert_awaited_once_with("u1")

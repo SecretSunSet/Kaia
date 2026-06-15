@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from loguru import logger
 
@@ -36,7 +37,7 @@ from skills.base import SkillResult
 
 
 class HevnExpert(BaseExpert):
-    """Hevn — Financial Advisor. Routes to 7 specialized skills."""
+    """Hevn — Financial Advisor. Routes to 8 specialized skills."""
 
     channel_id = "hevn"
 
@@ -367,7 +368,7 @@ class HevnExpert(BaseExpert):
     async def _run_debt(self, user: User, message: str, currency: str) -> str:
         """Debt intent router: payment > progress > entry (audit/plan)."""
         low = message.lower()
-        if any(k in low for k in ("paid", "i pay", "nabayaran", "binayaran", "payment")):
+        if re.search(r"\b(paid|nabayaran|binayaran)\b", low) or "i pay" in low:
             text = await self.debt.record_payment(self.ai, user, message, currency)
             if text is not None:
                 await self._after_debt_turn(user)
