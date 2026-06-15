@@ -30,6 +30,7 @@ from experts.hevn.skills.education import EducationSkill
 from experts.hevn.skills.goals_manager import GoalsManagerSkill
 from experts.hevn.skills.health_assessment import FinancialHealthSkill
 from experts.hevn.skills.market_trends import MarketTrendsSkill
+from experts.hevn.skills.debt_coach import DebtCoachSkill
 from experts.hevn.skills.proactive import ProactiveAlertsSkill
 from skills.base import SkillResult
 
@@ -48,6 +49,7 @@ class HevnExpert(BaseExpert):
         self.market = MarketTrendsSkill()
         self.education = EducationSkill()
         self.proactive = ProactiveAlertsSkill()
+        self.debt = DebtCoachSkill()
 
     # ── Main entry ──────────────────────────────────────────────────
 
@@ -142,6 +144,14 @@ class HevnExpert(BaseExpert):
         """
         currency = getattr(user, "currency", None) or "PHP"
 
+        # Mid-audit messages bypass intent classification entirely.
+        if self.debt.has_session(user.id):
+            text = await self.debt.continue_audit(self.ai, user, message, currency)
+            await self._after_debt_turn(user)
+            footer = self.format_response_footer(channel)
+            await self.save_messages(user.id, channel.channel_id, message, text)
+            return SkillResult(text=f"{text}{footer}", skill_name=channel.channel_id)
+
         # First-visit onboarding
         try:
             is_first = await self._channel_mgr.is_first_visit(
@@ -187,6 +197,8 @@ class HevnExpert(BaseExpert):
             specialized_text = await self._run_bills(user, message, currency)
         elif intent == "budget_coaching":
             specialized_text = await self._run_coaching(user.id, currency)
+        elif intent == "debt":
+            specialized_text = await self._run_debt(user, message, currency)
 
         if specialized_text is not None:
             footer = self.format_response_footer(channel)
@@ -352,6 +364,39 @@ class HevnExpert(BaseExpert):
         ]
         return "\n".join(parts)
 
+    async def _run_debt(self, user: User, message: str, currency: str) -> str:
+        """Debt intent router: payment > progress > entry (audit/plan)."""
+        low = message.lower()
+        if any(k in low for k in ("paid", "i pay", "nabayaran", "binayaran", "payment")):
+            text = await self.debt.record_payment(self.ai, user, message, currency)
+            if text is not None:
+                await self._after_debt_turn(user)
+                return text
+        if any(k in low for k in ("progress", "how's my debt", "hows my debt", "debt plan", "status")):
+            return await self.debt.format_progress(user.id, currency)
+        text = await self.debt.entry_point(self.ai, user, message, currency)
+        await self._after_debt_turn(user)
+        return text
+
+    async def _after_debt_turn(self, user: User) -> None:
+        """Keep debt reminder jobs scheduled while an active plan exists.
+
+        Idempotent (replace_existing jobs) — called after any debt turn so
+        jobs survive bot restarts without a persistent job store.
+        """
+        try:
+            plan = await db.get_active_debt_plan(user.id)
+            if plan is None:
+                return
+            from core.scheduler import schedule_debt_reminders
+            await schedule_debt_reminders(
+                user_id=user.id,
+                telegram_id=user.telegram_id,
+                timezone=user.timezone or "Asia/Manila",
+            )
+        except Exception as exc:
+            logger.warning("Failed to schedule debt reminders: {}", exc)
+
     # ── Persona response for open-ended intents ─────────────────────
 
     async def _persona_response(
@@ -374,6 +419,13 @@ class HevnExpert(BaseExpert):
         goals_summary = await self.goals.format_goals_overview(
             user.id, user.currency or "PHP"
         )
+        try:
+            debts_summary = await self.debt.debts_summary(
+                user.id, user.currency or "PHP"
+            )
+        except Exception as exc:
+            logger.warning("Failed to fetch debts summary: {}", exc)
+            debts_summary = ""
 
         channel_entries = await db.get_channel_profile(user.id, channel.channel_id)
         top_gap = self._channel_mem.get_top_gap(channel.channel_id, channel_entries)
@@ -386,6 +438,7 @@ class HevnExpert(BaseExpert):
             budget_summary=budget_summary,
             goals_summary=goals_summary,
             current_gap=current_gap,
+            debts_summary=debts_summary,
         )
 
         # If education intent, attach user's level so Hevn adapts

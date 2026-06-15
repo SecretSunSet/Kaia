@@ -372,3 +372,12 @@ async def test_audit_more_unsure_does_not_skip_to_budget(monkeypatch):
     # Should NOT have advanced to the budget question.
     assert "per month" not in reply.lower() and "toward debt each month" not in reply.lower()
     assert skill._sessions[user.id].stage != "budget"
+
+
+from experts.hevn import HevnExpert
+
+
+def test_hevn_expert_has_debt_skill():
+    ai = MagicMock()
+    hevn = HevnExpert(ai_engine=ai)
+    assert isinstance(hevn.debt, DebtCoachSkill)
