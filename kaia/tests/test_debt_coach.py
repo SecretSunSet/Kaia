@@ -346,3 +346,29 @@ async def test_entry_point_routes_by_state(monkeypatch):
     text = await skill.entry_point(MagicMock(), user, "help me get out of debt", "PHP")
     assert skill.has_session(user.id)
     assert skill._sessions[user.id].stage == "budget"
+
+
+@pytest.mark.asyncio
+async def test_audit_more_unsure_does_not_skip_to_budget(monkeypatch):
+    # "not sure" at the "any other debts?" prompt must NOT be read as "no".
+    skill = DebtCoachSkill()
+    user = _user()
+    monkeypatch.setattr(
+        "experts.hevn.skills.debt_coach.db.create_debt",
+        AsyncMock(return_value=_debt(id="new-1")),
+    )
+    ai = _ai_seq([{
+        "name": "BPI Credit Card", "debt_type": "credit_card",
+        "balance": 45000, "interest_rate": 3.5, "rate_period": "monthly",
+        "minimum_payment": 2250, "due_day": 15,
+    }])
+    skill.start_audit(user.id)
+    await skill.continue_audit(ai, user, "BPI card 45k 3.5% monthly min 2250 due 15", "PHP")
+    # Now in 'more' stage. "not sure" must not be treated as "no".
+    reply = await skill.continue_audit(_ai_seq([{
+        "name": None, "debt_type": None, "balance": None, "interest_rate": None,
+        "rate_period": None, "minimum_payment": None, "due_day": None,
+    }]), user, "not sure", "PHP")
+    # Should NOT have advanced to the budget question.
+    assert "per month" not in reply.lower() and "toward debt each month" not in reply.lower()
+    assert skill._sessions[user.id].stage != "budget"

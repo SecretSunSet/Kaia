@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-
-from loguru import logger
 
 from config.constants import CURRENCY_SYMBOLS
 from database import queries as db
@@ -31,7 +30,6 @@ MAX_MONTHLY_RATE = Decimal("25")  # sanity bound on quoted monthly %
 
 UNSURE_MARKERS = ("not sure", "don't know", "dont know", "di ko alam", "idk", "no idea")
 SKIP_MARKERS = ("skip", "none", "wala")
-CANCEL_MARKERS = ("cancel", "stop", "never mind", "nevermind")
 
 
 def to_debt_input(debt: Debt) -> DebtInput:
@@ -291,7 +289,7 @@ class DebtCoachSkill:
             return await self.entry_point(ai, user, message, currency)
 
         low = message.lower().strip()
-        if any(m in low for m in CANCEL_MARKERS):
+        if re.search(r"\b(cancel|stop|never ?mind)\b", low):
             self.clear_session(user.id)
             return (
                 "No problem — everything you've told me so far is saved. "
@@ -398,7 +396,16 @@ class DebtCoachSkill:
     ) -> str:
         from experts.hevn.parser import parse_debt_mention
 
-        if low.startswith("no") or "that's all" in low or "thats all" in low or "wala na" in low:
+        unsure = any(m in low for m in UNSURE_MARKERS)
+        is_no = not unsure and (
+            low in ("no", "nope", "none", "wala", "no more", "that's all", "thats all")
+            or low.startswith("no,")
+            or low.startswith("no ")
+            or "that's all" in low
+            or "thats all" in low
+            or "wala na" in low
+        )
+        if is_no:
             session.stage = "budget"
             return (
                 f"That's {session.captured} debt(s) on file. Now the key "
