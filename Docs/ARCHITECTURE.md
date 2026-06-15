@@ -203,6 +203,7 @@ Read paths:
 - **Budget summary**: `get_income_total` / `get_expense_total` / `get_spending_by_category` from the `transactions` table.
 - **Goals**: `financial_goals` (CH-2 table).
 - **Bills**: `recurring_bills` (CH-2 table).
+- **Debts / payments / plans**: `debts`, `debt_payments`, `debt_plans` (D-1 tables).
 - **Memory**: shared `user_profile` + Hevn's `channel_profile` slice.
 
 Write paths:
@@ -214,6 +215,18 @@ Write paths:
 Proactive paths:
 - **Weekly digest** — scheduled on first `/hevn` visit; fires every Sunday 09:00 user TZ; delivered to Hevn's forum topic (if any) else DM.
 - **Salary allocation** — the Budget skill calls back into Hevn when an income+salary transaction is logged, only if the user has met Hevn.
+- **Debt nudges** — daily 09:00 due-date nudges (3 days ahead) + monthly review (1st, 09:30) via `core/scheduler.py`.
+
+Hevn skill modules (8 total as of D-1):
+- `experts/hevn/skills/health_assessment.py` — weighted financial health score
+- `experts/hevn/skills/budget_coaching.py` — spending pattern analysis and waste detection
+- `experts/hevn/skills/goals_manager.py` — goal create/track/project
+- `experts/hevn/skills/bills_tracker.py` — recurring bills, upcoming-7-days view
+- `experts/hevn/skills/market_trends.py` — BSP rate, PSEi, USD/PHP, PH news
+- `experts/hevn/skills/education.py` — progressive topic catalog, level-adapted explanations
+- `experts/hevn/skills/proactive.py` — weekly digest, spending alerts, salary allocation
+- `experts/hevn/skills/debt_coach.py` — guided debt audit, payoff plan, payments, progress (D-1)
+- `experts/hevn/skills/debt_math.py` — pure-Python amortization engine; no LLM, no I/O (D-1)
 
 ---
 

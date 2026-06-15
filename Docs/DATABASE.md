@@ -191,3 +191,65 @@ One row per envelope (request, reply, or error). The audit log and the R-4-ready
 Indexed on `(conversation_id, created_at)` and partial-indexed on `(to_agent, created_at DESC) WHERE kind = 'request'`.
 
 Both tables have row-level security enabled with a `service_role_all` policy granting full access to the service role (the asyncpg pool uses the Supabase service-role credentials).
+
+---
+
+## Hevn Debt Coach Tables (Migration 007)
+
+Added in D-1. Accessed via supabase-py in `database/queries.py` (asyncpg remains bus-only).
+
+### `debts`
+
+One row per debt the user owes. Captured by the guided debt audit or chat mentions.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `user_id` | UUID | FK → users (ON DELETE CASCADE) |
+| `name` | VARCHAR(100) | e.g., `"BPI Credit Card"` |
+| `debt_type` | VARCHAR(30) | `credit_card`, `salary_loan`, `personal_loan`, `five_six`, `pagibig_loan`, `sss_loan`, `auto_loan`, `mortgage`, `other` |
+| `balance` | DECIMAL(14,2) | Current outstanding |
+| `interest_rate` | DECIMAL(8,4) | As quoted, percent |
+| `rate_period` | VARCHAR(10) | `monthly` / `yearly` — PH cards quote monthly |
+| `rate_is_estimate` | BOOLEAN | TRUE when a type-default rate was used |
+| `minimum_payment` | DECIMAL(12,2) | Nullable; simulator falls back to max(3% of balance, ₱500) |
+| `due_day` | INT | 1–31, nullable |
+| `original_amount` | DECIMAL(14,2) | Nullable |
+| `status` | VARCHAR(20) | `active` / `paid_off` / `archived` |
+| `notes` | TEXT | — |
+| `created_at` / `updated_at` | TIMESTAMPTZ | — |
+
+Indexed on `(user_id, status)`.
+
+### `debt_payments`
+
+Payment history — what makes "ahead/behind plan" computable.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `debt_id` | UUID | FK → debts (ON DELETE CASCADE) |
+| `user_id` | UUID | FK → users (ON DELETE CASCADE) |
+| `amount` | DECIMAL(12,2) | — |
+| `paid_on` | DATE | Default CURRENT_DATE |
+| `balance_after` | DECIMAL(14,2) | Balance snapshot after the payment |
+| `created_at` | TIMESTAMPTZ | — |
+
+Indexed on `(debt_id, paid_on DESC)`.
+
+### `debt_plans`
+
+One active payoff plan per user. The month-by-month schedule is never stored — it is recomputed deterministically from current debts + plan params; progress compares today's recompute against the baseline snapshot.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `user_id` | UUID | FK → users (ON DELETE CASCADE) |
+| `strategy` | VARCHAR(20) | `avalanche` / `snowball` |
+| `monthly_budget` | DECIMAL(12,2) | Total ₱/month committed to debt |
+| `baseline_payoff_date` | DATE | Projected at plan creation |
+| `baseline_total_interest` | DECIMAL(14,2) | Projected at plan creation |
+| `status` | VARCHAR(20) | `active` / `completed` / `abandoned` |
+| `created_at` | TIMESTAMPTZ | — |
+
+Indexed on `(user_id, status)`. All three tables: RLS enabled, standard `service_role_all` policy.

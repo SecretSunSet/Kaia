@@ -107,7 +107,7 @@ amount), `_run_goals` loads the last 6 Hevn messages via
 `get_channel_conversations` and prepends them to the parser input so the
 target amount can be resolved from Hevn's prior suggestion.
 
-### The 7 Skills
+### The 8 Skills
 
 | Skill | File | Highlights |
 |-------|------|-----------|
@@ -118,6 +118,18 @@ target amount can be resolved from Hevn's prior suggestion.
 | Market Trends | `skills/market_trends.py` | BSP rate, PSEi, USD/PHP via web search; PH-filtered financial news; personalized impact explanations. |
 | Education | `skills/education.py` | Topic catalog (basics/saving/investing/ph_specific/insurance/advanced); level inference from profile; level-adapted explanations; next-topic suggestions. |
 | Proactive Alerts | `skills/proactive.py` | Weekly digest (Sunday 09:00), spending alerts, goal milestones, salary allocation on income-salary events. |
+| Debt Coach | `skills/debt_coach.py` | Guided debt audit, avalanche/snowball payoff plans (LLM-free math), payment logging, due-date nudges, monthly progress review. (D-1) |
+
+### DebtCoach (`experts/hevn/skills/debt_coach.py`) — Phase D-1
+
+Professional debt payoff coaching backed by deterministic math (`debt_math.py` — the LLM never does arithmetic):
+
+- **Guided debt audit** — "help me get out of debt" triggers a one-debt-at-a-time intake (lender → balance → rate → minimum → due day). Unknown rates get labeled PH type-defaults (`rate_is_estimate`). Each completed debt is saved immediately; the audit is resumable and cancellable.
+- **Payoff plan** — computes BOTH avalanche and snowball via `debt_math.compare_strategies`, presents the peso comparison, recommends one (`recommend_strategy`), user picks; plan + baseline snapshot persisted.
+- **Payments** — "paid 5k on my BPI card" logs to `debt_payments`, decrements the balance, celebrates payoffs.
+- **Progress** — recomputes the plan from live balances vs the baseline: ahead/behind in months, updated debt-free date.
+- **Proactive** — due-date nudges 3 days ahead (daily 9:00 check) + monthly review (1st, 9:30) via `core/scheduler.py`.
+- **Edge handling** — budget below minimums → shortfall advice (restructure, balance transfer, consolidation), no plan built; payment ≤ monthly interest → non-amortizing warning naming the debt.
 
 ### Hevn Shortcut Commands
 

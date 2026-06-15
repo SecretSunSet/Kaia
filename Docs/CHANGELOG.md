@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-15 — D-1: Hevn Debt Coach
+
+- NEW: guided debt audit ("help me get out of debt") capturing debts one at a time
+- NEW: avalanche vs snowball payoff plans with real amortization math (LLM-free)
+- NEW: payment logging via chat ("paid 5k on my BPI card") with payoff celebrations
+- NEW: due-date nudges (3 days ahead) and monthly progress reviews
+- NEW: tables `debts`, `debt_payments`, `debt_plans` (migration 007)
+- CHANGED: Hevn's system prompt now includes a debts summary + PH debt-counseling expertise
+
 ## [2026-06-12] R-3 — Agentic OS Bus + A2A Protocol + Hevn↔MakubeX Demo
 
 ### Added

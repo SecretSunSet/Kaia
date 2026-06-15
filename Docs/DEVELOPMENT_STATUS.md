@@ -22,9 +22,20 @@ See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
 | Phase CH-1 | ✅ Complete | Expert Channel System — Infrastructure |
 | Phase CH-1.1 | ✅ Complete | Telegram Forum Topics support (dual-mode routing) |
 | **Phase CH-2** | ✅ **Complete** | **Hevn — Financial Advisor (7 skills, digest, salary allocation)** |
+| **Phase D-1** | ✅ **Complete** | **Hevn Debt Coach (migration 007, 8th skill, avalanche/snowball engine)** |
 | Phase CH-3 | ⏳ Next | MakubeX — Tech Lead skills |
 | Phase CH-4 | ⏳ Planned | Kazuki — Investment Manager skills |
 | Phase CH-5 | ⏳ Planned | Akabane — Trading Strategist skills |
+
+---
+
+### Phase D-1 — Hevn Debt Coach (2026-06-15) ✅
+
+Structured debt tracking (migration 007: debts, debt_payments, debt_plans),
+deterministic avalanche/snowball payoff engine, guided debt audit
+conversation, payment logging, due-date nudges + monthly progress review.
+Spec: `Docs/superpowers/specs/2026-06-12-hevn-debt-coach-design.md`.
+**Deploy note: run `007_hevn_debt.sql` in the Supabase SQL editor.**
 
 ---
 
@@ -127,7 +138,7 @@ See [`AGENTIC_OS/DESIGN.md`](AGENTIC_OS/DESIGN.md) for the full design.
 
 After Phase CH-2:
 
-- Hevn is the first fully realized expert — 7 specialized skills, own extractor, scheduled weekly digest, budget tracker integration.
+- Hevn is the first fully realized expert — 8 specialized skills (7 from CH-2 + Debt Coach from D-1), own extractor, scheduled weekly digest, budget tracker integration.
 - Kazuki, Akabane, MakubeX continue on `PlaceholderExpert` until their respective phases.
 - Shared `user_profile` under category `finances` is Hevn's cross-expert hand-off — Kazuki (CH-4) will read these facts when offering investment advice.
 - Phase CH-3 (MakubeX — Tech Lead) is next.
